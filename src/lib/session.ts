@@ -7,6 +7,7 @@ export type SessionUser = {
   name: string;
   role: "admin" | "client";
   clientId: number | null;
+  clientRole: "viewer" | "operator" | null;
 };
 
 export type Session = {

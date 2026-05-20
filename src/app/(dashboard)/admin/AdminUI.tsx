@@ -7,19 +7,35 @@ type Workflow = {
   n8nWorkflowId: string;
   displayName: string | null;
 };
+type ClientUser = {
+  id: number;
+  email: string;
+  name: string;
+  clientRole: "viewer" | "operator";
+};
 type Client = {
   id: number;
   name: string;
   createdAt: string;
   workflows: Workflow[];
+  users: ClientUser[];
+};
+type AvailableWorkflow = {
+  id: string;
+  name: string;
+  active: boolean;
 };
 
-export function AdminUI({ initial }: { initial: Client[] }) {
+export function AdminUI({
+  initial,
+  availableWorkflows,
+}: {
+  initial: Client[];
+  availableWorkflows: AvailableWorkflow[];
+}) {
   const router = useRouter();
   const [newClient, setNewClient] = useState("");
-  const [adds, setAdds] = useState<Record<number, { id: string; name: string }>>(
-    {}
-  );
+  const [pickerOpenFor, setPickerOpenFor] = useState<number | null>(null);
 
   async function createClient() {
     if (!newClient.trim()) return;
@@ -32,18 +48,35 @@ export function AdminUI({ initial }: { initial: Client[] }) {
     router.refresh();
   }
 
-  async function addWorkflow(clientId: number) {
-    const draft = adds[clientId];
-    if (!draft?.id) return;
+  async function renameClient(clientId: number, name: string) {
+    await fetch(`/api/admin/clients/${clientId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    router.refresh();
+  }
+
+  async function deleteClient(clientId: number, name: string) {
+    if (
+      !confirm(
+        `Delete "${name}"?\n\nAll workflow mappings will be removed. User accounts stay but become unassigned.`
+      )
+    )
+      return;
+    await fetch(`/api/admin/clients/${clientId}`, { method: "DELETE" });
+    router.refresh();
+  }
+
+  async function assignWorkflow(clientId: number, n8nWorkflowId: string, displayName?: string) {
     await fetch(`/api/admin/clients/${clientId}/workflows`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        n8nWorkflowId: draft.id.trim(),
-        displayName: draft.name?.trim() || undefined,
+        n8nWorkflowId,
+        displayName: displayName?.trim() || undefined,
       }),
     });
-    setAdds((s) => ({ ...s, [clientId]: { id: "", name: "" } }));
     router.refresh();
   }
 
@@ -52,6 +85,18 @@ export function AdminUI({ initial }: { initial: Client[] }) {
       `/api/admin/clients/${clientId}/workflows?workflowId=${encodeURIComponent(workflowId)}`,
       { method: "DELETE" }
     );
+    router.refresh();
+  }
+
+  async function changeUserRole(
+    userId: number,
+    clientRole: "viewer" | "operator"
+  ) {
+    await fetch(`/api/admin/users/${userId}/role`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientRole }),
+    });
     router.refresh();
   }
 
@@ -73,85 +118,260 @@ export function AdminUI({ initial }: { initial: Client[] }) {
       </div>
 
       {initial.map((c) => {
-        const draft = adds[c.id] || { id: "", name: "" };
+        const assigned = new Set(c.workflows.map((w) => w.n8nWorkflowId));
+        const unassigned = availableWorkflows.filter((w) => !assigned.has(w.id));
         return (
-          <div key={c.id} className="card p-5 space-y-4">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <h3 className="text-lg font-semibold">{c.name}</h3>
-                <div className="text-xs text-muted">Client #{c.id}</div>
+          <div key={c.id} className="card p-5 space-y-5">
+            <ClientHeader
+              client={c}
+              onRename={(name) => renameClient(c.id, name)}
+              onDelete={() => deleteClient(c.id, c.name)}
+            />
+
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <div className="label">Workflows ({c.workflows.length})</div>
+                {unassigned.length > 0 && (
+                  <button
+                    className="btn text-xs"
+                    onClick={() =>
+                      setPickerOpenFor(pickerOpenFor === c.id ? null : c.id)
+                    }
+                  >
+                    {pickerOpenFor === c.id ? "Close picker" : "+ Assign workflow"}
+                  </button>
+                )}
               </div>
-              <div className="text-sm text-muted">
-                {c.workflows.length} workflow
-                {c.workflows.length === 1 ? "" : "s"}
-              </div>
-            </div>
-            <div className="border border-border rounded-md overflow-hidden">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>n8n Workflow ID</th>
-                    <th>Display name override</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {c.workflows.map((w) => (
-                    <tr key={w.id}>
-                      <td className="font-mono text-xs">{w.n8nWorkflowId}</td>
-                      <td>{w.displayName || <span className="text-muted">—</span>}</td>
-                      <td className="text-right">
-                        <button
-                          onClick={() => removeWorkflow(c.id, w.n8nWorkflowId)}
-                          className="btn text-xs"
-                        >
-                          Remove
-                        </button>
-                      </td>
+              <div className="border border-border rounded-md overflow-hidden">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>n8n Workflow ID</th>
+                      <th>Display name override</th>
+                      <th></th>
                     </tr>
-                  ))}
-                  <tr>
-                    <td>
-                      <input
-                        className="input w-full text-sm"
-                        placeholder="wf_..."
-                        value={draft.id}
-                        onChange={(e) =>
-                          setAdds((s) => ({
-                            ...s,
-                            [c.id]: { ...draft, id: e.target.value },
-                          }))
-                        }
-                      />
-                    </td>
-                    <td>
-                      <input
-                        className="input w-full text-sm"
-                        placeholder="Optional display name"
-                        value={draft.name}
-                        onChange={(e) =>
-                          setAdds((s) => ({
-                            ...s,
-                            [c.id]: { ...draft, name: e.target.value },
-                          }))
-                        }
-                      />
-                    </td>
-                    <td className="text-right">
-                      <button
-                        onClick={() => addWorkflow(c.id)}
-                        className="btn btn-primary text-xs"
-                      >
-                        Add
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {c.workflows.map((w) => (
+                      <tr key={w.id}>
+                        <td className="font-mono text-xs">{w.n8nWorkflowId}</td>
+                        <td>
+                          {w.displayName || (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                        <td className="text-right">
+                          <button
+                            onClick={() => removeWorkflow(c.id, w.n8nWorkflowId)}
+                            className="btn text-xs"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {c.workflows.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="text-center text-muted py-6">
+                          No workflows assigned yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {pickerOpenFor === c.id && (
+                <WorkflowPicker
+                  available={unassigned}
+                  onAssign={(id, name) => assignWorkflow(c.id, id, name)}
+                />
+              )}
+            </section>
+
+            <section>
+              <div className="label mb-2">Users ({c.users.length})</div>
+              <div className="border border-border rounded-md overflow-hidden">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Name</th>
+                      <th>Role</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {c.users.map((u) => (
+                      <tr key={u.id}>
+                        <td className="font-mono text-xs">{u.email}</td>
+                        <td>{u.name}</td>
+                        <td>
+                          <select
+                            className="input text-xs py-1"
+                            value={u.clientRole}
+                            onChange={(e) =>
+                              changeUserRole(
+                                u.id,
+                                e.target.value as "viewer" | "operator"
+                              )
+                            }
+                          >
+                            <option value="viewer">viewer (read-only)</option>
+                            <option value="operator">
+                              operator (can run manually)
+                            </option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                    {c.users.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="text-center text-muted py-6">
+                          No users for this client yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ClientHeader({
+  client,
+  onRename,
+  onDelete,
+}: {
+  client: Client;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(client.name);
+  function save() {
+    if (draft.trim() && draft !== client.name) onRename(draft.trim());
+    setEditing(false);
+  }
+  return (
+    <div className="flex items-start justify-between">
+      <div className="flex-1">
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              className="input text-lg font-semibold"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") save();
+                if (e.key === "Escape") {
+                  setDraft(client.name);
+                  setEditing(false);
+                }
+              }}
+            />
+            <button onClick={save} className="btn btn-primary text-xs">
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setDraft(client.name);
+                setEditing(false);
+              }}
+              className="btn text-xs"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">{client.name}</h3>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-muted hover:text-white text-xs"
+              title="Rename"
+            >
+              ✏️
+            </button>
+          </div>
+        )}
+        <div className="text-xs text-muted">Client #{client.id}</div>
+      </div>
+      <button
+        onClick={onDelete}
+        className="btn text-xs text-red-400 hover:bg-red-950/40"
+      >
+        Delete client
+      </button>
+    </div>
+  );
+}
+
+function WorkflowPicker({
+  available,
+  onAssign,
+}: {
+  available: AvailableWorkflow[];
+  onAssign: (id: string, displayName?: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
+  const filtered = available.filter(
+    (w) =>
+      w.id.toLowerCase().includes(query.toLowerCase()) ||
+      w.name.toLowerCase().includes(query.toLowerCase())
+  );
+  return (
+    <div className="mt-3 border border-border rounded-md p-3 space-y-3 bg-[#0d1117]">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">Available n8n workflows</div>
+        <input
+          className="input text-sm"
+          placeholder="Search by name or ID..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className="max-h-80 overflow-y-auto divide-y divide-border">
+        {filtered.map((w) => (
+          <div
+            key={w.id}
+            className="flex items-center gap-3 py-2"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="font-medium truncate">{w.name}</div>
+              <div className="text-xs text-muted font-mono">
+                {w.id} · {w.active ? "active" : "inactive"}
+              </div>
+            </div>
+            <input
+              className="input text-xs w-40"
+              placeholder="Display name (optional)"
+              value={displayNames[w.id] || ""}
+              onChange={(e) =>
+                setDisplayNames((s) => ({ ...s, [w.id]: e.target.value }))
+              }
+            />
+            <button
+              className="btn btn-primary text-xs"
+              onClick={() => onAssign(w.id, displayNames[w.id])}
+            >
+              Assign
+            </button>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="text-center text-muted py-6 text-sm">
+            {available.length === 0
+              ? "All available workflows are already assigned to this client."
+              : "No matches."}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

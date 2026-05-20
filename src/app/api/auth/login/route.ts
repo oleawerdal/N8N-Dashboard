@@ -21,6 +21,7 @@ export async function POST(req: Request) {
     name: u.name,
     role: u.role,
     clientId: u.clientId,
+    clientRole: u.clientRole,
   };
   await session.save();
   return NextResponse.json({ ok: true });

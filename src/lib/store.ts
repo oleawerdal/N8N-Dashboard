@@ -15,6 +15,8 @@ export type Client = {
   createdAt: string;
 };
 
+export type ClientRole = "viewer" | "operator";
+
 export type User = {
   id: number;
   email: string;
@@ -23,6 +25,7 @@ export type User = {
   passwordSalt: string;
   role: "admin" | "client";
   clientId: number | null;
+  clientRole: ClientRole | null; // only meaningful when role === "client"
 };
 
 export type WorkflowMapping = {
@@ -87,7 +90,8 @@ function seed(s: State) {
     name: string,
     password: string,
     role: "admin" | "client",
-    clientId: number | null
+    clientId: number | null,
+    clientRole: ClientRole | null
   ) {
     const { hash, salt } = hashPw(password);
     s.users.push({
@@ -98,11 +102,13 @@ function seed(s: State) {
       passwordSalt: salt,
       role,
       clientId,
+      clientRole,
     });
   }
-  user("admin@dashboard.local", "Admin", "admin123", "admin", null);
-  user("acme@dashboard.local", "Acme User", "acme123", "client", acme.id);
-  user("globex@dashboard.local", "Globex User", "globex123", "client", globex.id);
+  user("admin@dashboard.local", "Admin", "admin123", "admin", null, null);
+  user("acme@dashboard.local", "Acme Operator", "acme123", "client", acme.id, "operator");
+  user("acme-viewer@dashboard.local", "Acme Viewer", "acme123", "client", acme.id, "viewer");
+  user("globex@dashboard.local", "Globex Operator", "globex123", "client", globex.id, "operator");
 
   function map(clientId: number, n8nWorkflowId: string, displayName: string | null) {
     s.mappings.push({
@@ -183,8 +189,22 @@ function getState(): State {
 // ---------- queries ----------
 
 export const users = {
+  findById(id: number): User | undefined {
+    return getState().users.find((u) => u.id === id);
+  },
   findByEmail(email: string): User | undefined {
     return getState().users.find((u) => u.email === email);
+  },
+  forClient(clientId: number): User[] {
+    return getState()
+      .users.filter((u) => u.role === "client" && u.clientId === clientId)
+      .sort((a, b) => a.email.localeCompare(b.email));
+  },
+  updateClientRole(id: number, role: ClientRole): boolean {
+    const u = this.findById(id);
+    if (!u || u.role !== "client") return false;
+    u.clientRole = role;
+    return true;
   },
 };
 
@@ -193,6 +213,9 @@ export const clients = {
     return [...getState().clients].sort((a, b) =>
       a.name.localeCompare(b.name)
     );
+  },
+  findById(id: number): Client | undefined {
+    return getState().clients.find((c) => c.id === id);
   },
   create(name: string): Client {
     const s = getState();
@@ -203,6 +226,27 @@ export const clients = {
     };
     s.clients.push(c);
     return c;
+  },
+  rename(id: number, name: string): boolean {
+    const c = this.findById(id);
+    if (!c) return false;
+    c.name = name;
+    return true;
+  },
+  remove(id: number): boolean {
+    const s = getState();
+    const before = s.clients.length;
+    s.clients = s.clients.filter((c) => c.id !== id);
+    if (s.clients.length === before) return false;
+    // cascade: drop mappings + unlink users
+    s.mappings = s.mappings.filter((m) => m.clientId !== id);
+    for (const u of s.users) {
+      if (u.clientId === id) {
+        u.clientId = null;
+        u.clientRole = null;
+      }
+    }
+    return true;
   },
 };
 

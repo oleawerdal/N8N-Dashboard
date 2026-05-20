@@ -47,7 +47,13 @@ export default async function WorkflowDetail({
             <span>Updated {new Date(workflow.updatedAt).toLocaleString()}</span>
           </div>
         </div>
-        <RunButton workflowId={workflow.id} />
+        {user.role === "admin" || user.clientRole === "operator" ? (
+          <RunButton workflowId={workflow.id} />
+        ) : (
+          <div className="text-xs text-muted text-right max-w-xs">
+            View-only access · ask your admin for operator role to run manually
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-4">

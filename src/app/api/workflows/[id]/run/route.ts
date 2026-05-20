@@ -13,6 +13,12 @@ export async function POST(
     if (!userCanAccessWorkflow(user, id)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
+    if (user.role === "client" && user.clientRole !== "operator") {
+      return NextResponse.json(
+        { error: "Your account has view-only access. Ask your admin for operator role to run workflows manually." },
+        { status: 403 }
+      );
+    }
     const result = await runWorkflow(id);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {

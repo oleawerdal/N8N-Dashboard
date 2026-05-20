@@ -18,11 +18,12 @@ npm run dev
 
 ### Demo logins
 
-| Email                       | Password    | Role                                    |
-| --------------------------- | ----------- | --------------------------------------- |
-| admin@dashboard.local       | admin123    | Admin (sees all + can manage mappings)  |
-| acme@dashboard.local        | acme123     | Acme Corp client                        |
-| globex@dashboard.local      | globex123   | Globex client                           |
+| Email                          | Password    | Role                                                  |
+| ------------------------------ | ----------- | ----------------------------------------------------- |
+| admin@dashboard.local          | admin123    | Admin (sees all + can manage clients/users/workflows) |
+| acme@dashboard.local           | acme123     | Acme Corp · operator (can trigger manual runs)        |
+| acme-viewer@dashboard.local    | acme123     | Acme Corp · viewer (read-only, no "Run now" button)   |
+| globex@dashboard.local         | globex123   | Globex Industries · operator                          |
 
 ## Deploy on Vercel (for testing)
 

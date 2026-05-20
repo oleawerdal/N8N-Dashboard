@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #0b0e14; color: #e6edf3; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+.card { background: #11151c; border: 1px solid #1f2733; border-radius: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; font-weight: 500; border: 1px solid #1f2733; background: #161b24; color: #e6edf3; }
+.btn:hover { background: #1c222d; }
+.btn-primary { background: #5b8def; border-color: #5b8def; color: white; }
+.btn-primary:hover { background: #4c7ee0; }
+.input { background: #0b0e14; border: 1px solid #1f2733; border-radius: 8px; padding: 8px 12px; color: #e6edf3; }
+.input:focus { outline: 2px solid #5b8def; outline-offset: -1px; }
+.label { font-size: 12px; color: #7d8794; text-transform: uppercase; letter-spacing: 0.04em; }
+
+table.data { width: 100%; border-collapse: collapse; }
+table.data th { text-align: left; font-size: 12px; color: #7d8794; text-transform: uppercase; padding: 12px 16px; border-bottom: 1px solid #1f2733; }
+table.data td { padding: 12px 16px; border-bottom: 1px solid #1f2733; font-size: 14px; }
+table.data tr:last-child td { border-bottom: none; }
+table.data tr.row-link:hover { background: #161b24; cursor: pointer; }

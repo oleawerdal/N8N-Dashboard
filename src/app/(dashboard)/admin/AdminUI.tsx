@@ -124,9 +124,9 @@ export function AdminUI({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="card p-5 flex items-end gap-3">
-        <div className="flex-1">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="card p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 sm:items-end">
+        <div>
           <div className="label mb-1">New client name</div>
           <input
             className="input w-full"
@@ -138,12 +138,12 @@ export function AdminUI({
         <div>
           <div className="label mb-1">Tenancy</div>
           <select
-            className="input"
+            className="input w-full"
             value={newTenancy}
             onChange={(e) => setNewTenancy(e.target.value as TenancyMode)}
           >
-            <option value="shared">shared (uses main n8n)</option>
-            <option value="dedicated">dedicated (own n8n container)</option>
+            <option value="shared">shared</option>
+            <option value="dedicated">dedicated</option>
           </select>
         </div>
         <button onClick={createClient} className="btn btn-primary">
@@ -155,7 +155,7 @@ export function AdminUI({
         const assigned = new Set(c.workflows.map((w) => w.n8nWorkflowId));
         const unassigned = availableWorkflows.filter((w) => !assigned.has(w.id));
         return (
-          <div key={c.id} className="card p-5 space-y-5">
+          <div key={c.id} className="card p-4 sm:p-5 space-y-4 sm:space-y-5">
             <ClientHeader
               client={c}
               onRename={(name) => renameClient(c.id, name)}
@@ -181,7 +181,7 @@ export function AdminUI({
                   )}
                 </div>
               <div className="border border-border rounded-md overflow-hidden">
-                <table className="data">
+                <table className="data hidden sm:table">
                   <thead>
                     <tr>
                       <th>n8n Workflow ID</th>
@@ -217,6 +217,33 @@ export function AdminUI({
                     )}
                   </tbody>
                 </table>
+                <div className="sm:hidden">
+                  {c.workflows.map((w) => (
+                    <div key={w.id} className="list-row">
+                      <div className="font-medium text-sm">
+                        {w.displayName || (
+                          <span className="text-muted">
+                            (no display name)
+                          </span>
+                        )}
+                      </div>
+                      <div className="row-meta font-mono text-xs">
+                        {w.n8nWorkflowId}
+                      </div>
+                      <button
+                        onClick={() => removeWorkflow(c.id, w.n8nWorkflowId)}
+                        className="btn text-xs self-start"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  {c.workflows.length === 0 && (
+                    <div className="text-center text-muted py-6 text-sm">
+                      No workflows assigned yet.
+                    </div>
+                  )}
+                </div>
               </div>
                 {pickerOpenFor === c.id && (
                   <WorkflowPicker
@@ -230,7 +257,7 @@ export function AdminUI({
             <section>
               <div className="label mb-2">Users ({c.users.length})</div>
               <div className="border border-border rounded-md overflow-hidden">
-                <table className="data">
+                <table className="data hidden sm:table">
                   <thead>
                     <tr>
                       <th>Email</th>
@@ -271,6 +298,36 @@ export function AdminUI({
                     )}
                   </tbody>
                 </table>
+                <div className="sm:hidden">
+                  {c.users.map((u) => (
+                    <div key={u.id} className="list-row">
+                      <div className="font-medium text-sm">{u.name}</div>
+                      <div className="row-meta font-mono text-xs break-all">
+                        {u.email}
+                      </div>
+                      <select
+                        className="input text-xs py-1"
+                        value={u.clientRole}
+                        onChange={(e) =>
+                          changeUserRole(
+                            u.id,
+                            e.target.value as "viewer" | "operator"
+                          )
+                        }
+                      >
+                        <option value="viewer">viewer (read-only)</option>
+                        <option value="operator">
+                          operator (can run manually)
+                        </option>
+                      </select>
+                    </div>
+                  ))}
+                  {c.users.length === 0 && (
+                    <div className="text-center text-muted py-6 text-sm">
+                      No users for this client yet.
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           </div>
@@ -298,13 +355,13 @@ function ClientHeader({
     setEditing(false);
   }
   return (
-    <div className="flex items-start justify-between">
-      <div className="flex-1">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      <div className="flex-1 min-w-0">
         {editing ? (
           <div className="flex items-center gap-2">
             <input
               autoFocus
-              className="input text-lg font-semibold"
+              className="input text-lg font-semibold flex-1"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -330,11 +387,12 @@ function ClientHeader({
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">{client.name}</h3>
+            <h3 className="text-lg font-semibold truncate">{client.name}</h3>
             <button
               onClick={() => setEditing(true)}
-              className="text-muted hover:text-white text-xs"
+              className="text-muted hover:text-white text-xs shrink-0"
               title="Rename"
+              aria-label="Rename"
             >
               ✏️
             </button>
@@ -342,7 +400,7 @@ function ClientHeader({
         )}
         <div className="text-xs text-muted">Client #{client.id}</div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <TenancyBadge
           mode={client.tenancyMode}
           onChange={onChangeTenancy}
@@ -352,7 +410,7 @@ function ClientHeader({
           onClick={onDelete}
           className="btn text-xs text-red-400 hover:bg-red-950/40"
         >
-          Delete client
+          Delete
         </button>
       </div>
     </div>
@@ -401,16 +459,15 @@ function TenancyBadge({
 function DedicatedInstanceSection({ client }: { client: Client }) {
   if (!client.instance) {
     return (
-      <div className="border border-dashed border-border rounded-md p-4 text-sm flex items-center justify-between">
-        <div>
-          <div className="font-medium">No dedicated instance provisioned yet</div>
+      <div className="border border-dashed border-border rounded-md p-4 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium">No dedicated instance yet</div>
           <div className="text-muted text-xs mt-1">
             This client has dedicated tenancy but no n8n container exists.
-            Provision one from the Instances page.
           </div>
         </div>
-        <a href="/admin/instances" className="btn btn-primary text-sm">
-          Go to Instances →
+        <a href="/admin/instances" className="btn btn-primary text-sm shrink-0">
+          Provision →
         </a>
       </div>
     );
@@ -423,23 +480,22 @@ function DedicatedInstanceSection({ client }: { client: Client }) {
       ? "bg-red-500"
       : "bg-amber-400";
   return (
-    <div className="border border-border rounded-md p-4 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <span className={`inline-block w-2 h-2 rounded-full ${statusColor}`} />
-        <div>
-          <div className="font-medium">
+    <div className="border border-border rounded-md p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor}`}
+        />
+        <div className="min-w-0">
+          <div className="font-medium truncate">
             {inst.subdomain}.n8n.example.com
           </div>
-          <div className="text-xs text-muted font-mono">
+          <div className="text-xs text-muted font-mono truncate">
             {inst.image} · {inst.status}
           </div>
         </div>
       </div>
-      <a
-        href="/admin/instances"
-        className="btn text-sm"
-      >
-        Manage instance →
+      <a href="/admin/instances" className="btn text-sm shrink-0">
+        Manage →
       </a>
     </div>
   );
@@ -461,41 +517,43 @@ function WorkflowPicker({
   );
   return (
     <div className="mt-3 border border-border rounded-md p-3 space-y-3 bg-[#0d1117]">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
         <div className="text-sm font-medium">Available n8n workflows</div>
         <input
-          className="input text-sm"
+          className="input text-sm w-full sm:w-auto"
           placeholder="Search by name or ID..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="max-h-80 overflow-y-auto divide-y divide-border">
+      <div className="max-h-96 overflow-y-auto divide-y divide-border">
         {filtered.map((w) => (
           <div
             key={w.id}
-            className="flex items-center gap-3 py-2"
+            className="flex flex-col sm:flex-row sm:items-center gap-2 py-3"
           >
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate">{w.name}</div>
-              <div className="text-xs text-muted font-mono">
+              <div className="text-xs text-muted font-mono truncate">
                 {w.id} · {w.active ? "active" : "inactive"}
               </div>
             </div>
-            <input
-              className="input text-xs w-40"
-              placeholder="Display name (optional)"
-              value={displayNames[w.id] || ""}
-              onChange={(e) =>
-                setDisplayNames((s) => ({ ...s, [w.id]: e.target.value }))
-              }
-            />
-            <button
-              className="btn btn-primary text-xs"
-              onClick={() => onAssign(w.id, displayNames[w.id])}
-            >
-              Assign
-            </button>
+            <div className="flex gap-2 items-center">
+              <input
+                className="input text-xs flex-1 sm:w-40 sm:flex-none"
+                placeholder="Display name (optional)"
+                value={displayNames[w.id] || ""}
+                onChange={(e) =>
+                  setDisplayNames((s) => ({ ...s, [w.id]: e.target.value }))
+                }
+              />
+              <button
+                className="btn btn-primary text-xs shrink-0"
+                onClick={() => onAssign(w.id, displayNames[w.id])}
+              >
+                Assign
+              </button>
+            </div>
           </div>
         ))}
         {filtered.length === 0 && (

@@ -40,10 +40,10 @@ export function InstancesUI({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex sm:justify-end">
         {eligibleClients.length > 0 ? (
           <button
-            className="btn btn-primary"
+            className="btn btn-primary w-full sm:w-auto"
             onClick={() => setCreating(true)}
           >
             + Provision new instance
@@ -122,14 +122,16 @@ function ProvisionForm({
   }
 
   return (
-    <div className="card p-5 space-y-4 border-accent/40">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Provision new n8n instance</h3>
+    <div className="card p-4 sm:p-5 space-y-4 border-accent/40">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-base sm:text-lg font-semibold">
+          Provision new instance
+        </h3>
         <button onClick={onClose} className="btn text-xs">
           Cancel
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div>
           <div className="label mb-1">Client</div>
           <select
@@ -148,18 +150,20 @@ function ProvisionForm({
           <div className="label mb-1">Subdomain</div>
           <div className="flex items-center gap-1">
             <input
-              className="input flex-1"
+              className="input flex-1 min-w-0"
               value={subdomain}
               onChange={(e) =>
                 setSubdomain(e.target.value.replace(/[^a-z0-9-]/g, ""))
               }
               placeholder="acme"
             />
-            <span className="text-muted text-sm">.n8n.example.com</span>
+            <span className="text-muted text-xs sm:text-sm whitespace-nowrap">
+              .n8n.example.com
+            </span>
           </div>
         </div>
-        <div className="col-span-2">
-          <div className="label mb-1">n8n version (Docker image)</div>
+        <div className="sm:col-span-2">
+          <div className="label mb-1">n8n version</div>
           <select
             className="input w-full"
             value={image}
@@ -172,18 +176,17 @@ function ProvisionForm({
             ))}
           </select>
         </div>
-        <div className="col-span-2">
-          <div className="label mb-1">Environment variables (KEY=value, one per line)</div>
+        <div className="sm:col-span-2">
+          <div className="label mb-1">Env vars (KEY=value per line)</div>
           <textarea
             className="input w-full font-mono text-xs"
-            rows={6}
+            rows={5}
             value={envInput}
             onChange={(e) => setEnvInput(e.target.value)}
           />
           <div className="text-xs text-muted mt-1">
-            `N8N_ENCRYPTION_KEY` will be auto-generated on the server if left
-            as the placeholder. Database settings are added automatically
-            (one Postgres per instance).
+            `N8N_ENCRYPTION_KEY` is auto-generated. DB config is added
+            automatically.
           </div>
         </div>
       </div>
@@ -279,46 +282,51 @@ function InstanceCard({
   return (
     <div className="card overflow-hidden">
       <div
-        className="p-5 flex items-center gap-4 cursor-pointer hover:bg-[#161b24]"
+        className="p-4 sm:p-5 flex items-start gap-3 cursor-pointer hover:bg-[#161b24]"
         onClick={onToggle}
       >
-        <StatusDot status={inst.status} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-3">
-            <div className="font-semibold">{inst.clientName}</div>
-            <div className="text-muted text-xs">
-              {inst.subdomain}.n8n.example.com
-            </div>
-          </div>
-          <div className="text-xs text-muted font-mono mt-1">
-            {inst.containerName} · {inst.image} · port {inst.port}
-          </div>
+        <div className="pt-1">
+          <StatusDot status={inst.status} />
         </div>
-        <div className="text-xs text-muted text-right">
-          <div>Updated {new Date(inst.updatedAt).toLocaleString()}</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold truncate">{inst.clientName}</div>
+          <div className="text-muted text-xs truncate">
+            {inst.subdomain}.n8n.example.com
+          </div>
+          <div className="text-xs text-muted font-mono mt-1 truncate">
+            {inst.image} · port {inst.port}
+          </div>
           {inst.lastError && (
-            <div className="text-red-400 mt-1">{inst.lastError}</div>
+            <div className="text-red-400 mt-1 text-xs">{inst.lastError}</div>
           )}
+        </div>
+        <div className="text-xs text-muted text-right shrink-0 hidden sm:block">
+          <div>Updated</div>
+          <div>{new Date(inst.updatedAt).toLocaleDateString()}</div>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="border-t border-border p-5 space-y-4">
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={restart} disabled={!!busy} className="btn text-sm">
-              {busy === "restart" ? "Restarting..." : "Restart"}
+        <div className="border-t border-border p-4 sm:p-5 space-y-4">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+            <button
+              onClick={restart}
+              disabled={!!busy}
+              className="btn text-sm"
+            >
+              {busy === "restart" ? "..." : "Restart"}
             </button>
             <button
               onClick={() => setTab(tab === "version" ? null : "version")}
               className="btn text-sm"
             >
-              Update version
+              Version
             </button>
             <button
               onClick={() => setTab(tab === "env" ? null : "env")}
               className="btn text-sm"
             >
-              Edit env vars
+              Env vars
             </button>
             <button
               onClick={() => {
@@ -327,13 +335,12 @@ function InstanceCard({
               }}
               className="btn text-sm"
             >
-              {tab === "logs" ? "Hide logs" : "View logs"}
+              {tab === "logs" ? "Hide logs" : "Logs"}
             </button>
-            <div className="flex-1" />
             <button
               onClick={destroy}
               disabled={!!busy}
-              className="btn text-sm text-red-400 hover:bg-red-950/40"
+              className="btn text-sm text-red-400 hover:bg-red-950/40 col-span-2 sm:ml-auto"
             >
               {busy === "destroy" ? "..." : "Destroy"}
             </button>
@@ -342,7 +349,7 @@ function InstanceCard({
           {tab === "version" && (
             <div className="border border-border rounded-md p-4 space-y-3">
               <div className="label">Change n8n version</div>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <select
                   className="input flex-1"
                   value={imageDraft}

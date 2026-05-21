@@ -57,11 +57,12 @@ export default async function Overview() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-medium">Recent activity</h2>
           <Link href="/workflows" className="text-sm text-accent hover:underline">
-            View all workflows →
+            View all →
           </Link>
         </div>
         <div className="card overflow-hidden">
-          <table className="data">
+          {/* Desktop table */}
+          <table className="data hidden sm:table">
             <thead>
               <tr>
                 <th>Workflow</th>
@@ -105,6 +106,34 @@ export default async function Overview() {
               )}
             </tbody>
           </table>
+          {/* Mobile list */}
+          <div className="sm:hidden">
+            {recentByWorkflow.flatMap(({ workflow, executions }) =>
+              executions.slice(0, 1).map((e) => (
+                <Link
+                  key={e.id}
+                  href={`/workflows/${workflow.id}`}
+                  className="list-row"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="row-title truncate">{workflow.name}</span>
+                    <StatusBadge status={e.status} />
+                  </div>
+                  <div className="row-meta flex justify-between">
+                    <span>{new Date(e.startedAt).toLocaleString()}</span>
+                    <span>
+                      {e.durationMs != null
+                        ? `${(e.durationMs / 1000).toFixed(2)}s`
+                        : "—"}
+                    </span>
+                  </div>
+                </Link>
+              ))
+            )}
+            {totalRuns === 0 && (
+              <div className="text-center text-muted py-8">No runs yet</div>
+            )}
+          </div>
         </div>
       </section>
     </div>

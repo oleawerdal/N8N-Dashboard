@@ -31,32 +31,36 @@ export default async function WorkflowDetail({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
           <Link
             href="/workflows"
             className="text-sm text-muted hover:text-white"
           >
             ← Workflows
           </Link>
-          <h1 className="text-2xl font-semibold mt-1">{workflow.name}</h1>
-          <div className="flex items-center gap-3 mt-2 text-sm text-muted">
+          <h1 className="text-xl sm:text-2xl font-semibold mt-1 break-words">
+            {workflow.name}
+          </h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-sm text-muted">
             <StatusBadge status={workflow.active ? "active" : "inactive"} />
-            <span>ID: {workflow.id}</span>
-            <span>·</span>
-            <span>Updated {new Date(workflow.updatedAt).toLocaleString()}</span>
+            <span className="font-mono text-xs">{workflow.id}</span>
+            <span className="hidden sm:inline">·</span>
+            <span className="text-xs">
+              Updated {new Date(workflow.updatedAt).toLocaleString()}
+            </span>
           </div>
         </div>
         {user.role === "admin" || user.clientRole === "operator" ? (
           <RunButton workflowId={workflow.id} />
         ) : (
-          <div className="text-xs text-muted text-right max-w-xs">
+          <div className="text-xs text-muted sm:text-right sm:max-w-xs">
             View-only access · ask your admin for operator role to run manually
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Stat label="Runs (last 25)" value={executions.length.toString()} />
         <Stat
           label="Success rate"
@@ -81,7 +85,7 @@ export default async function WorkflowDetail({
       <section>
         <h2 className="text-lg font-medium mb-3">Recent executions</h2>
         <div className="card overflow-hidden">
-          <table className="data">
+          <table className="data hidden sm:table">
             <thead>
               <tr>
                 <th>Started</th>
@@ -125,6 +129,46 @@ export default async function WorkflowDetail({
               )}
             </tbody>
           </table>
+          <div className="sm:hidden">
+            {executions.map((e) => {
+              const slowest = [...e.nodes].sort(
+                (a, b) => b.executionTimeMs - a.executionTimeMs
+              )[0];
+              return (
+                <div key={e.id} className="list-row">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="row-title">
+                      {new Date(e.startedAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <StatusBadge status={e.status} />
+                  </div>
+                  <div className="row-meta flex justify-between">
+                    <span className="capitalize">{e.mode}</span>
+                    <span>
+                      {e.durationMs != null
+                        ? `${(e.durationMs / 1000).toFixed(2)}s`
+                        : "—"}
+                    </span>
+                  </div>
+                  {slowest && (
+                    <div className="row-meta text-xs">
+                      Slowest: {slowest.node} ({slowest.executionTimeMs}ms)
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {executions.length === 0 && (
+              <div className="text-center text-muted py-8">
+                No executions yet
+              </div>
+            )}
+          </div>
         </div>
       </section>
 

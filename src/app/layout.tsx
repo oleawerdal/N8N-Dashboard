@@ -1,9 +1,15 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: "n8n Client Dashboard",
   description: "Client-facing view of n8n workflows",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#0b0e14",
 };
 
 export default function RootLayout({

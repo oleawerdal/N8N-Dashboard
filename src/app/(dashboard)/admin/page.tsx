@@ -79,18 +79,17 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Admin · Clients & access</h1>
-          <p className="text-muted">
-            Pick tenancy, assign workflows, and manage per-user roles.
+          <h1 className="text-xl sm:text-2xl font-semibold">
+            Admin · Clients
+          </h1>
+          <p className="text-muted text-sm">
+            Pick tenancy, assign workflows, manage per-user roles.
           </p>
         </div>
-        <Link
-          href="/admin/instances"
-          className="btn text-sm"
-        >
-          Manage n8n instances →
+        <Link href="/admin/instances" className="btn text-sm self-start">
+          n8n Instances →
         </Link>
       </div>
       <AdminUI initial={data} availableWorkflows={allWorkflows} />

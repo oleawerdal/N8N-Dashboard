@@ -30,12 +30,11 @@ export default async function InstancesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Admin · n8n Instances</h1>
-          <p className="text-muted">
-            Dedicated n8n containers, one per customer. Provisioning, version
-            upgrades, env vars, logs.
+          <h1 className="text-xl sm:text-2xl font-semibold">n8n Instances</h1>
+          <p className="text-muted text-sm">
+            Dedicated n8n containers — one per customer.
           </p>
         </div>
         <Link href="/admin" className="text-sm text-accent hover:underline">
@@ -43,19 +42,21 @@ export default async function InstancesPage() {
         </Link>
       </div>
 
-      <div className="card p-4 text-sm flex items-center gap-3">
-        <span
-          className={`inline-block w-2 h-2 rounded-full ${
-            DOCKER_LIVE ? "bg-emerald-400" : "bg-amber-400"
-          }`}
-        />
-        <span className="font-medium">
-          Docker mode: {DOCKER_LIVE ? "REAL" : "MOCK"}
-        </span>
-        <span className="text-muted">
+      <div className="card p-3 sm:p-4 text-sm flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-block w-2 h-2 rounded-full ${
+              DOCKER_LIVE ? "bg-emerald-400" : "bg-amber-400"
+            }`}
+          />
+          <span className="font-medium">
+            Docker mode: {DOCKER_LIVE ? "REAL" : "MOCK"}
+          </span>
+        </div>
+        <span className="text-muted text-xs sm:text-sm">
           {DOCKER_LIVE
-            ? "Actions hit /var/run/docker.sock on the host."
-            : "Demo mode: actions update in-memory state, no real containers are touched. Flip DOCKER_MODE=real after deploying to a host with Docker."}
+            ? "Actions hit /var/run/docker.sock."
+            : "Demo: actions update in-memory state only. Flip DOCKER_MODE=real on host."}
         </span>
       </div>
 

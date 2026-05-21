@@ -33,7 +33,8 @@ export default async function WorkflowsPage() {
         </div>
       </div>
       <div className="card overflow-hidden">
-        <table className="data">
+        {/* Desktop table */}
+        <table className="data hidden sm:table">
           <thead>
             <tr>
               <th>Name</th>
@@ -76,6 +77,38 @@ export default async function WorkflowsPage() {
             )}
           </tbody>
         </table>
+        {/* Mobile list */}
+        <div className="sm:hidden">
+          {enriched.map(({ workflow, last }) => (
+            <Link
+              key={workflow.id}
+              href={`/workflows/${workflow.id}`}
+              className="list-row"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="row-title truncate">
+                  {overrides.get(workflow.id) || workflow.name}
+                </span>
+                <StatusBadge
+                  status={workflow.active ? "active" : "inactive"}
+                />
+              </div>
+              <div className="row-meta flex justify-between">
+                <span>{last ? new Date(last.startedAt).toLocaleString() : "—"}</span>
+                <span>
+                  {last?.durationMs != null
+                    ? `${(last.durationMs / 1000).toFixed(2)}s`
+                    : "—"}
+                </span>
+              </div>
+            </Link>
+          ))}
+          {enriched.length === 0 && (
+            <div className="text-center text-muted py-8">
+              No workflows assigned to your account yet.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

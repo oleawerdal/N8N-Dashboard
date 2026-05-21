@@ -20,7 +20,8 @@ export default async function ErrorsPage() {
         </p>
       </div>
       <div className="card overflow-hidden">
-        <table className="data">
+        {/* Desktop table */}
+        <table className="data hidden sm:table">
           <thead>
             <tr>
               <th>When</th>
@@ -56,6 +57,38 @@ export default async function ErrorsPage() {
             )}
           </tbody>
         </table>
+        {/* Mobile list */}
+        <div className="sm:hidden">
+          {rows.map((r) => (
+            <div key={r.id} className="list-row">
+              <div className="flex items-baseline justify-between gap-3">
+                <Link
+                  href={`/workflows/${r.n8nWorkflowId}`}
+                  className="row-title hover:underline truncate"
+                >
+                  {r.workflowName || r.n8nWorkflowId}
+                </Link>
+                <span className="row-meta whitespace-nowrap text-xs">
+                  {new Date(r.receivedAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </div>
+              {r.nodeName && (
+                <div className="row-meta">Node: {r.nodeName}</div>
+              )}
+              <div className="text-red-400 text-sm">{r.message || "—"}</div>
+            </div>
+          ))}
+          {rows.length === 0 && (
+            <div className="text-center text-muted py-8">
+              No errors recorded.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card p-5 text-sm">

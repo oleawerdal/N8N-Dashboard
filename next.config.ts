@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
 
+// 'standalone' produces a slim self-contained server bundle that the
+// Dockerfile copies. Only enable it when building the Docker image —
+// Vercel handles packaging itself and standalone output can confuse
+// its build pipeline. Set BUILD_TARGET=docker in the Dockerfile.
 const config: NextConfig = {
-  // 'standalone' produces a slim self-contained server bundle that the
-  // Dockerfile copies. Vercel ignores this and uses its own packager,
-  // so the same config works for both targets.
-  output: "standalone",
+  output: process.env.BUILD_TARGET === "docker" ? "standalone" : undefined,
 };
 
 export default config;

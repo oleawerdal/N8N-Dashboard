@@ -7,11 +7,14 @@ export type SessionUser = {
   name: string;
   role: "admin" | "client";
   clientId: number | null;
-  clientRole: "viewer" | "operator" | null;
+  clientRole: "viewer" | "operator" | "client_admin" | null;
 };
 
 export type Session = {
   user?: SessionUser;
+  // When set, the session is impersonating `user`; `realUser` is the
+  // identity to return to. /api/auth/stop-impersonating swaps back.
+  realUser?: SessionUser;
 };
 
 const sessionOptions: SessionOptions = {
@@ -41,4 +44,12 @@ export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (user.role !== "admin") throw new Error("FORBIDDEN");
   return user;
+}
+
+export async function requireClientAdmin(): Promise<SessionUser> {
+  const user = await requireUser();
+  // Platform admins implicitly have client_admin rights.
+  if (user.role === "admin") return user;
+  if (user.role === "client" && user.clientRole === "client_admin") return user;
+  throw new Error("FORBIDDEN");
 }

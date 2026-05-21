@@ -10,11 +10,15 @@ export async function PATCH(
     await requireAdmin();
     const { id } = await params;
     const { clientRole } = (await req.json()) as {
-      clientRole?: "viewer" | "operator";
+      clientRole?: "viewer" | "operator" | "client_admin";
     };
-    if (clientRole !== "viewer" && clientRole !== "operator") {
+    if (
+      clientRole !== "viewer" &&
+      clientRole !== "operator" &&
+      clientRole !== "client_admin"
+    ) {
       return NextResponse.json(
-        { error: "clientRole must be 'viewer' or 'operator'" },
+        { error: "clientRole must be viewer, operator or client_admin" },
         { status: 400 }
       );
     }

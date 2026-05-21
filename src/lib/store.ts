@@ -39,7 +39,7 @@ export type Instance = {
   lastError: string | null;
 };
 
-export type ClientRole = "viewer" | "operator";
+export type ClientRole = "viewer" | "operator" | "client_admin";
 
 export type User = {
   id: number;
@@ -50,6 +50,11 @@ export type User = {
   role: "admin" | "client";
   clientId: number | null;
   clientRole: ClientRole | null; // only meaningful when role === "client"
+  mfaEnabled: boolean;
+  passkeyCount: number;
+  ssoProvider: "entra" | null;
+  createdAt: string;
+  lastLoginAt: string | null;
 };
 
 export type WorkflowMapping = {
@@ -70,11 +75,59 @@ export type ErrorEvent = {
   acknowledged: boolean;
 };
 
+export type Settings = {
+  branding: {
+    brandName: string;
+    tagline: string;
+    logoUrl: string | null;
+    primaryColor: string;
+    supportEmail: string;
+  };
+  auth: {
+    emailPassword: { enabled: boolean };
+    entra: {
+      enabled: boolean;
+      tenantId: string;
+      clientId: string;
+      clientSecretSet: boolean;
+      allowedDomains: string;
+    };
+    mfa: {
+      enforced: ("admin" | "client_admin" | "operator" | "viewer")[];
+    };
+    passkeys: { enabled: boolean };
+  };
+  emails: Record<string, { subject: string; body: string }>;
+};
+
+export const EMAIL_TEMPLATES = [
+  {
+    key: "invite",
+    label: "User invitation",
+    sample: { name: "Anna", inviterName: "Ole", loginUrl: "https://…" },
+  },
+  {
+    key: "passwordReset",
+    label: "Password reset",
+    sample: { name: "Anna", resetUrl: "https://…", expiresIn: "60 minutes" },
+  },
+  {
+    key: "errorAlert",
+    label: "Workflow error alert",
+    sample: {
+      name: "Anna",
+      workflowName: "Order Sync",
+      nodeName: "Write to Destination",
+      message: "ECONNRESET",
+      dashboardUrl: "https://…",
+    },
+  },
+] as const;
+
 // Bump when the State shape changes. Warm Vercel lambdas can hold a
-// `global.__store` from a previous deploy where new fields (e.g.
-// `instances`) don't exist; without this guard `getState().instances`
-// would be undefined and crash on first access.
-const SCHEMA_VERSION = 2;
+// `global.__store` from a previous deploy where new fields don't exist;
+// without this guard accesses would crash on first request.
+const SCHEMA_VERSION = 3;
 
 type State = {
   schemaVersion: number;
@@ -84,6 +137,7 @@ type State = {
   mappings: WorkflowMapping[];
   errors: ErrorEvent[];
   instances: Instance[];
+  settings: Settings;
   next: {
     client: number;
     user: number;
@@ -162,7 +216,8 @@ function seed(s: State) {
     password: string,
     role: "admin" | "client",
     clientId: number | null,
-    clientRole: ClientRole | null
+    clientRole: ClientRole | null,
+    extras: Partial<Pick<User, "mfaEnabled" | "passkeyCount" | "ssoProvider">> = {}
   ) {
     const { hash, salt } = hashPw(password);
     s.users.push({
@@ -174,11 +229,23 @@ function seed(s: State) {
       role,
       clientId,
       clientRole,
+      mfaEnabled: extras.mfaEnabled ?? false,
+      passkeyCount: extras.passkeyCount ?? 0,
+      ssoProvider: extras.ssoProvider ?? null,
+      createdAt: nowIso,
+      lastLoginAt: null,
     });
   }
-  user("admin@dashboard.local", "Admin", "admin123", "admin", null, null);
+  user("admin@dashboard.local", "Platform Admin", "admin123", "admin", null, null, {
+    mfaEnabled: true,
+    passkeyCount: 1,
+  });
+  user("acme-admin@dashboard.local", "Acme Admin", "acme123", "client", acme.id, "client_admin", {
+    mfaEnabled: true,
+  });
   user("acme@dashboard.local", "Acme Operator", "acme123", "client", acme.id, "operator");
   user("acme-viewer@dashboard.local", "Acme Viewer", "acme123", "client", acme.id, "viewer");
+  user("globex-admin@dashboard.local", "Globex Admin", "globex123", "client", globex.id, "client_admin");
   user("globex@dashboard.local", "Globex Operator", "globex123", "client", globex.id, "operator");
 
   function map(clientId: number, n8nWorkflowId: string, displayName: string | null) {
@@ -242,6 +309,47 @@ function seed(s: State) {
   s.seeded = true;
 }
 
+function defaultSettings(): Settings {
+  return {
+    branding: {
+      brandName: "n8n Dashboard",
+      tagline: "Automation, supervised.",
+      logoUrl: null,
+      primaryColor: "#5b8def",
+      supportEmail: "support@example.com",
+    },
+    auth: {
+      emailPassword: { enabled: true },
+      entra: {
+        enabled: false,
+        tenantId: "",
+        clientId: "",
+        clientSecretSet: false,
+        allowedDomains: "",
+      },
+      mfa: { enforced: ["admin"] },
+      passkeys: { enabled: true },
+    },
+    emails: {
+      invite: {
+        subject: "{{brandName}}: you've been invited",
+        body:
+          "Hi {{name}},\n\n{{inviterName}} has invited you to {{brandName}}.\n\nSign in: {{loginUrl}}\n\n— The {{brandName}} team",
+      },
+      passwordReset: {
+        subject: "Reset your {{brandName}} password",
+        body:
+          "Hi {{name}},\n\nClick the link below to reset your password. It expires in {{expiresIn}}.\n\n{{resetUrl}}\n\nIf you didn't request this, you can ignore the email.",
+      },
+      errorAlert: {
+        subject: "[{{brandName}}] Workflow error: {{workflowName}}",
+        body:
+          "Hi {{name}},\n\nWorkflow \"{{workflowName}}\" failed.\n\nNode: {{nodeName}}\nMessage: {{message}}\n\nDetails: {{dashboardUrl}}",
+      },
+    },
+  };
+}
+
 function getState(): State {
   if (
     !global.__store ||
@@ -255,6 +363,7 @@ function getState(): State {
       mappings: [],
       errors: [],
       instances: [],
+      settings: defaultSettings(),
       next: { client: 1, user: 1, mapping: 1, error: 1, instance: 1 },
     };
   }
@@ -280,6 +389,92 @@ export const users = {
     const u = this.findById(id);
     if (!u || u.role !== "client") return false;
     u.clientRole = role;
+    return true;
+  },
+  createInTenant(input: {
+    email: string;
+    name: string;
+    clientId: number;
+    clientRole: ClientRole;
+  }): User | { error: string } {
+    const s = getState();
+    if (s.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
+      return { error: "Email already in use" };
+    }
+    // Generate a random initial password — the real flow would email
+    // an invitation link. In the prototype we just print it.
+    const tempPassword = crypto.randomBytes(9).toString("base64url");
+    const { hash, salt } = hashPw(tempPassword);
+    const u: User = {
+      id: s.next.user++,
+      email: input.email,
+      name: input.name,
+      passwordHash: hash,
+      passwordSalt: salt,
+      role: "client",
+      clientId: input.clientId,
+      clientRole: input.clientRole,
+      mfaEnabled: false,
+      passkeyCount: 0,
+      ssoProvider: null,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: null,
+    };
+    s.users.push(u);
+    // Attach for the response so the client admin can copy/send it
+    // manually until the real invite-email flow is wired up.
+    (u as User & { _tempPassword?: string })._tempPassword = tempPassword;
+    return u;
+  },
+  remove(id: number): boolean {
+    const s = getState();
+    const before = s.users.length;
+    s.users = s.users.filter((u) => u.id !== id);
+    return s.users.length < before;
+  },
+  setMfa(id: number, enabled: boolean): boolean {
+    const u = this.findById(id);
+    if (!u) return false;
+    u.mfaEnabled = enabled;
+    return true;
+  },
+  registerPasskey(id: number): boolean {
+    const u = this.findById(id);
+    if (!u) return false;
+    u.passkeyCount += 1;
+    return true;
+  },
+  removePasskeys(id: number): boolean {
+    const u = this.findById(id);
+    if (!u) return false;
+    u.passkeyCount = 0;
+    return true;
+  },
+  recordLogin(id: number) {
+    const u = this.findById(id);
+    if (u) u.lastLoginAt = new Date().toISOString();
+  },
+};
+
+export const settings = {
+  read(): Settings {
+    return getState().settings;
+  },
+  updateBranding(input: Partial<Settings["branding"]>) {
+    const s = getState();
+    s.settings.branding = { ...s.settings.branding, ...input };
+  },
+  updateAuth(input: Partial<Settings["auth"]>) {
+    const s = getState();
+    s.settings.auth = { ...s.settings.auth, ...input };
+  },
+  updateEmail(
+    key: string,
+    template: { subject: string; body: string }
+  ): boolean {
+    const s = getState();
+    if (!(key in s.settings.emails)) return false;
+    s.settings.emails[key] = template;
     return true;
   },
 };

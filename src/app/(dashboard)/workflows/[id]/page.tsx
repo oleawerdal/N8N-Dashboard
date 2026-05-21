@@ -51,7 +51,9 @@ export default async function WorkflowDetail({
             </span>
           </div>
         </div>
-        {user.role === "admin" || user.clientRole === "operator" ? (
+        {user.role === "admin" ||
+        user.clientRole === "operator" ||
+        user.clientRole === "client_admin" ? (
           <RunButton workflowId={workflow.id} />
         ) : (
           <div className="text-xs text-muted sm:text-right sm:max-w-xs">

@@ -23,6 +23,8 @@ export async function POST(req: Request) {
     clientId: u.clientId,
     clientRole: u.clientRole,
   };
+  delete session.realUser;
+  users.recordLogin(u.id);
   await session.save();
   return NextResponse.json({ ok: true });
 }

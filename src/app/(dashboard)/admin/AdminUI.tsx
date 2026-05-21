@@ -11,7 +11,7 @@ type ClientUser = {
   id: number;
   email: string;
   name: string;
-  clientRole: "viewer" | "operator";
+  clientRole: "viewer" | "operator" | "client_admin";
 };
 type TenancyMode = "shared" | "dedicated";
 type InstanceSummary = {
@@ -113,7 +113,7 @@ export function AdminUI({
 
   async function changeUserRole(
     userId: number,
-    clientRole: "viewer" | "operator"
+    clientRole: "viewer" | "operator" | "client_admin"
   ) {
     await fetch(`/api/admin/users/${userId}/role`, {
       method: "PATCH",
@@ -277,13 +277,19 @@ export function AdminUI({
                             onChange={(e) =>
                               changeUserRole(
                                 u.id,
-                                e.target.value as "viewer" | "operator"
+                                e.target.value as
+                                  | "viewer"
+                                  | "operator"
+                                  | "client_admin"
                               )
                             }
                           >
                             <option value="viewer">viewer (read-only)</option>
                             <option value="operator">
                               operator (can run manually)
+                            </option>
+                            <option value="client_admin">
+                              client admin (manages team)
                             </option>
                           </select>
                         </td>
@@ -311,13 +317,19 @@ export function AdminUI({
                         onChange={(e) =>
                           changeUserRole(
                             u.id,
-                            e.target.value as "viewer" | "operator"
+                            e.target.value as
+                              | "viewer"
+                              | "operator"
+                              | "client_admin"
                           )
                         }
                       >
                         <option value="viewer">viewer (read-only)</option>
                         <option value="operator">
                           operator (can run manually)
+                        </option>
+                        <option value="client_admin">
+                          client admin (manages team)
                         </option>
                       </select>
                     </div>

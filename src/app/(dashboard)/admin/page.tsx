@@ -78,21 +78,37 @@ export default async function AdminPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold">
-            Admin · Clients
-          </h1>
-          <p className="text-muted text-sm">
-            Pick tenancy, assign workflows, manage per-user roles.
-          </p>
-        </div>
-        <Link href="/admin/instances" className="btn text-sm self-start">
-          n8n Instances →
-        </Link>
+    <div className="space-y-4 sm:space-y-6">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-semibold">Admin</h1>
+        <p className="text-muted text-sm">
+          Platform-level settings and tenant management.
+        </p>
       </div>
-      <AdminUI initial={data} availableWorkflows={allWorkflows} />
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <AdminTile href="/admin/instances" label="n8n Instances" />
+        <AdminTile href="/admin/branding" label="Branding" />
+        <AdminTile href="/admin/auth" label="Authentication" />
+        <AdminTile href="/admin/emails" label="Email templates" />
+      </div>
+
+      <div className="pt-2 sm:pt-4">
+        <h2 className="text-lg font-medium mb-3">Clients</h2>
+        <AdminUI initial={data} availableWorkflows={allWorkflows} />
+      </div>
     </div>
+  );
+}
+
+function AdminTile({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="card p-3 sm:p-4 hover:bg-[#161b24] flex items-center justify-between text-sm font-medium"
+    >
+      {label}
+      <span className="text-muted">→</span>
+    </Link>
   );
 }

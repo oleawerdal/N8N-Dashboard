@@ -13,9 +13,16 @@ export async function POST(
     if (!userCanAccessWorkflow(user, id)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
-    if (user.role === "client" && user.clientRole !== "operator") {
+    if (
+      user.role === "client" &&
+      user.clientRole !== "operator" &&
+      user.clientRole !== "client_admin"
+    ) {
       return NextResponse.json(
-        { error: "Your account has view-only access. Ask your admin for operator role to run workflows manually." },
+        {
+          error:
+            "Your account has view-only access. Ask your client admin for operator role to run workflows manually.",
+        },
         { status: 403 }
       );
     }

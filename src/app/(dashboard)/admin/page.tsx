@@ -1,7 +1,8 @@
 import { requireAdmin } from "@/lib/session";
-import { clients, mappings, users } from "@/lib/store";
+import { clients, instances, mappings, users } from "@/lib/store";
 import { N8N_LIVE, _mock } from "@/lib/n8n";
 import { AdminUI } from "./AdminUI";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -42,32 +43,52 @@ export default async function AdminPage() {
   const allMaps = mappings.all();
   const allWorkflows = await listAllN8nWorkflows();
 
-  const data = allClients.map((c) => ({
-    id: c.id,
-    name: c.name,
-    createdAt: c.createdAt,
-    workflows: allMaps
-      .filter((m) => m.clientId === c.id)
-      .map((m) => ({
-        id: m.id,
-        n8nWorkflowId: m.n8nWorkflowId,
-        displayName: m.displayName,
+  const data = allClients.map((c) => {
+    const inst = instances.forClient(c.id);
+    return {
+      id: c.id,
+      name: c.name,
+      createdAt: c.createdAt,
+      tenancyMode: c.tenancyMode,
+      instance: inst
+        ? {
+            id: inst.id,
+            subdomain: inst.subdomain,
+            image: inst.image,
+            status: inst.status,
+          }
+        : null,
+      workflows: allMaps
+        .filter((m) => m.clientId === c.id)
+        .map((m) => ({
+          id: m.id,
+          n8nWorkflowId: m.n8nWorkflowId,
+          displayName: m.displayName,
+        })),
+      users: users.forClient(c.id).map((u) => ({
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        clientRole: (u.clientRole ?? "viewer") as "viewer" | "operator",
       })),
-    users: users.forClient(c.id).map((u) => ({
-      id: u.id,
-      email: u.email,
-      name: u.name,
-      clientRole: (u.clientRole ?? "viewer") as "viewer" | "operator",
-    })),
-  }));
+    };
+  });
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Admin · Clients & access</h1>
-        <p className="text-muted">
-          Pick which n8n workflows each client can see, and set per-user roles.
-        </p>
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Admin · Clients & access</h1>
+          <p className="text-muted">
+            Pick tenancy, assign workflows, and manage per-user roles.
+          </p>
+        </div>
+        <Link
+          href="/admin/instances"
+          className="btn text-sm"
+        >
+          Manage n8n instances →
+        </Link>
       </div>
       <AdminUI initial={data} availableWorkflows={allWorkflows} />
     </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/session";
-import { clients } from "@/lib/store";
+import { instances } from "@/lib/store";
+import { destroy, updateEnv, updateImage } from "@/lib/docker";
 
 export async function PATCH(
   req: Request,
@@ -9,27 +10,22 @@ export async function PATCH(
   try {
     await requireAdmin();
     const { id } = await params;
+    const instId = Number(id);
+    const inst = instances.findById(instId);
+    if (!inst)
+      return NextResponse.json({ error: "not found" }, { status: 404 });
     const body = (await req.json()) as {
-      name?: string;
-      tenancyMode?: "shared" | "dedicated";
+      image?: string;
+      envVars?: Record<string, string>;
     };
-    if (!body.name?.trim() && !body.tenancyMode) {
-      return NextResponse.json(
-        { error: "nothing to update" },
-        { status: 400 }
-      );
+    let updated = inst;
+    if (body.image && body.image !== inst.image) {
+      updated = await updateImage(instId, body.image);
     }
-    if (body.name?.trim()) {
-      const ok = clients.rename(Number(id), body.name.trim());
-      if (!ok)
-        return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (body.envVars) {
+      updated = await updateEnv(instId, body.envVars);
     }
-    if (body.tenancyMode) {
-      const ok = clients.setTenancyMode(Number(id), body.tenancyMode);
-      if (!ok)
-        return NextResponse.json({ error: "not found" }, { status: 404 });
-    }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ instance: updated });
   } catch (e) {
     return errorResponse(e);
   }
@@ -42,8 +38,7 @@ export async function DELETE(
   try {
     await requireAdmin();
     const { id } = await params;
-    const ok = clients.remove(Number(id));
-    if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
+    await destroy(Number(id));
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);

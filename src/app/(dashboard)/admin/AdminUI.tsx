@@ -13,10 +13,19 @@ type ClientUser = {
   name: string;
   clientRole: "viewer" | "operator";
 };
+type TenancyMode = "shared" | "dedicated";
+type InstanceSummary = {
+  id: number;
+  subdomain: string;
+  image: string;
+  status: "running" | "stopped" | "provisioning" | "updating" | "error";
+};
 type Client = {
   id: number;
   name: string;
   createdAt: string;
+  tenancyMode: TenancyMode;
+  instance: InstanceSummary | null;
   workflows: Workflow[];
   users: ClientUser[];
 };
@@ -35,6 +44,7 @@ export function AdminUI({
 }) {
   const router = useRouter();
   const [newClient, setNewClient] = useState("");
+  const [newTenancy, setNewTenancy] = useState<TenancyMode>("shared");
   const [pickerOpenFor, setPickerOpenFor] = useState<number | null>(null);
 
   async function createClient() {
@@ -42,9 +52,22 @@ export function AdminUI({
     await fetch("/api/admin/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newClient.trim() }),
+      body: JSON.stringify({
+        name: newClient.trim(),
+        tenancyMode: newTenancy,
+      }),
     });
     setNewClient("");
+    setNewTenancy("shared");
+    router.refresh();
+  }
+
+  async function changeTenancy(clientId: number, tenancyMode: TenancyMode) {
+    await fetch(`/api/admin/clients/${clientId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenancyMode }),
+    });
     router.refresh();
   }
 
@@ -112,6 +135,17 @@ export function AdminUI({
             placeholder="e.g. Initech"
           />
         </div>
+        <div>
+          <div className="label mb-1">Tenancy</div>
+          <select
+            className="input"
+            value={newTenancy}
+            onChange={(e) => setNewTenancy(e.target.value as TenancyMode)}
+          >
+            <option value="shared">shared (uses main n8n)</option>
+            <option value="dedicated">dedicated (own n8n container)</option>
+          </select>
+        </div>
         <button onClick={createClient} className="btn btn-primary">
           Add client
         </button>
@@ -126,22 +160,26 @@ export function AdminUI({
               client={c}
               onRename={(name) => renameClient(c.id, name)}
               onDelete={() => deleteClient(c.id, c.name)}
+              onChangeTenancy={(mode) => changeTenancy(c.id, mode)}
             />
 
-            <section>
-              <div className="flex items-center justify-between mb-2">
-                <div className="label">Workflows ({c.workflows.length})</div>
-                {unassigned.length > 0 && (
-                  <button
-                    className="btn text-xs"
-                    onClick={() =>
-                      setPickerOpenFor(pickerOpenFor === c.id ? null : c.id)
-                    }
-                  >
-                    {pickerOpenFor === c.id ? "Close picker" : "+ Assign workflow"}
-                  </button>
-                )}
-              </div>
+            {c.tenancyMode === "dedicated" ? (
+              <DedicatedInstanceSection client={c} />
+            ) : (
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="label">Workflows ({c.workflows.length})</div>
+                  {unassigned.length > 0 && (
+                    <button
+                      className="btn text-xs"
+                      onClick={() =>
+                        setPickerOpenFor(pickerOpenFor === c.id ? null : c.id)
+                      }
+                    >
+                      {pickerOpenFor === c.id ? "Close picker" : "+ Assign workflow"}
+                    </button>
+                  )}
+                </div>
               <div className="border border-border rounded-md overflow-hidden">
                 <table className="data">
                   <thead>
@@ -180,13 +218,14 @@ export function AdminUI({
                   </tbody>
                 </table>
               </div>
-              {pickerOpenFor === c.id && (
-                <WorkflowPicker
-                  available={unassigned}
-                  onAssign={(id, name) => assignWorkflow(c.id, id, name)}
-                />
-              )}
-            </section>
+                {pickerOpenFor === c.id && (
+                  <WorkflowPicker
+                    available={unassigned}
+                    onAssign={(id, name) => assignWorkflow(c.id, id, name)}
+                  />
+                )}
+              </section>
+            )}
 
             <section>
               <div className="label mb-2">Users ({c.users.length})</div>
@@ -245,10 +284,12 @@ function ClientHeader({
   client,
   onRename,
   onDelete,
+  onChangeTenancy,
 }: {
   client: Client;
   onRename: (name: string) => void;
   onDelete: () => void;
+  onChangeTenancy: (mode: TenancyMode) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(client.name);
@@ -301,12 +342,105 @@ function ClientHeader({
         )}
         <div className="text-xs text-muted">Client #{client.id}</div>
       </div>
-      <button
-        onClick={onDelete}
-        className="btn text-xs text-red-400 hover:bg-red-950/40"
+      <div className="flex items-center gap-2">
+        <TenancyBadge
+          mode={client.tenancyMode}
+          onChange={onChangeTenancy}
+          hasInstance={!!client.instance}
+        />
+        <button
+          onClick={onDelete}
+          className="btn text-xs text-red-400 hover:bg-red-950/40"
+        >
+          Delete client
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TenancyBadge({
+  mode,
+  onChange,
+  hasInstance,
+}: {
+  mode: TenancyMode;
+  onChange: (mode: TenancyMode) => void;
+  hasInstance: boolean;
+}) {
+  const color =
+    mode === "dedicated"
+      ? "bg-blue-950/50 text-blue-300 border-blue-800/50"
+      : "bg-emerald-950/40 text-emerald-300 border-emerald-800/50";
+  return (
+    <div className={`px-2 py-1 rounded-md border text-xs ${color}`}>
+      <select
+        value={mode}
+        onChange={(e) => {
+          const next = e.target.value as TenancyMode;
+          if (
+            next === "shared" &&
+            hasInstance &&
+            !confirm(
+              "Switching to shared will leave the dedicated instance orphaned (you'll need to destroy it from the Instances page). Continue?"
+            )
+          ) {
+            return;
+          }
+          onChange(next);
+        }}
+        className="bg-transparent border-none outline-none"
       >
-        Delete client
-      </button>
+        <option value="shared">shared tenancy</option>
+        <option value="dedicated">dedicated tenancy</option>
+      </select>
+    </div>
+  );
+}
+
+function DedicatedInstanceSection({ client }: { client: Client }) {
+  if (!client.instance) {
+    return (
+      <div className="border border-dashed border-border rounded-md p-4 text-sm flex items-center justify-between">
+        <div>
+          <div className="font-medium">No dedicated instance provisioned yet</div>
+          <div className="text-muted text-xs mt-1">
+            This client has dedicated tenancy but no n8n container exists.
+            Provision one from the Instances page.
+          </div>
+        </div>
+        <a href="/admin/instances" className="btn btn-primary text-sm">
+          Go to Instances →
+        </a>
+      </div>
+    );
+  }
+  const inst = client.instance;
+  const statusColor =
+    inst.status === "running"
+      ? "bg-emerald-400"
+      : inst.status === "error"
+      ? "bg-red-500"
+      : "bg-amber-400";
+  return (
+    <div className="border border-border rounded-md p-4 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <span className={`inline-block w-2 h-2 rounded-full ${statusColor}`} />
+        <div>
+          <div className="font-medium">
+            {inst.subdomain}.n8n.example.com
+          </div>
+          <div className="text-xs text-muted font-mono">
+            {inst.image} · {inst.status}
+          </div>
+        </div>
+      </div>
+      <a
+        href="/admin/instances"
+        className="btn text-sm"
+      >
+        Manage instance →
+      </a>
     </div>
   );
 }

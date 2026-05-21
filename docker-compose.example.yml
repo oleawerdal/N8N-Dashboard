@@ -1,0 +1,71 @@
+# Production reference setup. Copy to docker-compose.yml and tweak.
+#
+# Topology:
+#   - Caddy: reverse proxy with automatic HTTPS and subdomain routing
+#   - dashboard: this Next.js app, mounts /var/run/docker.sock so it can
+#     provision per-customer n8n containers
+#   - n8n_shared: the "shared" n8n instance for clients in shared tenancy
+#   - n8n_<subdomain> + n8n_<subdomain>_db: provisioned dynamically by
+#     the dashboard for each dedicated client (not declared here)
+#
+# Security:
+#   - Lock /admin behind IP allowlist + MFA at the proxy layer.
+#   - Never expose port 2375 (Docker remote API) on the network.
+#   - Rotate SESSION_SECRET and N8N_API_KEY on user-departure events.
+
+version: "3.9"
+
+networks:
+  edge: {}
+  internal: {}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}
+  n8n_shared_data: {}
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+
+  dashboard:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Make sure this is set to a strong random value in your real .env
+      SESSION_SECRET: "${SESSION_SECRET}"
+      # Switch the n8n client from mock to live
+      N8N_MODE: "live"
+      N8N_BASE_URL: "http://n8n_shared:5678"
+      N8N_API_KEY: "${N8N_API_KEY}"
+      # Flip this from 'mock' to 'real' once you've wired up dockerode.
+      # Until then the Instances UI still works (in-memory only).
+      DOCKER_MODE: "mock"
+    volumes:
+      # Required when DOCKER_MODE=real. Gives the dashboard root-equivalent
+      # access to this host. Lock the admin UI behind strong auth.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [edge, internal]
+    # No external port — Caddy fronts it.
+
+  n8n_shared:
+    image: n8nio/n8n:1.95.0
+    restart: unless-stopped
+    environment:
+      N8N_HOST: "n8n.example.com"
+      N8N_PROTOCOL: "https"
+      WEBHOOK_URL: "https://n8n.example.com"
+      GENERIC_TIMEZONE: "Europe/Oslo"
+      N8N_ENCRYPTION_KEY: "${N8N_SHARED_ENCRYPTION_KEY}"
+    volumes:
+      - n8n_shared_data:/home/node/.n8n
+    networks: [internal]

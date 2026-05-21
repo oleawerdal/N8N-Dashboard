@@ -9,10 +9,34 @@
 
 import crypto from "node:crypto";
 
+export type TenancyMode = "shared" | "dedicated";
+
 export type Client = {
   id: number;
   name: string;
   createdAt: string;
+  tenancyMode: TenancyMode;
+};
+
+export type InstanceStatus =
+  | "running"
+  | "stopped"
+  | "provisioning"
+  | "updating"
+  | "error";
+
+export type Instance = {
+  id: number;
+  clientId: number;
+  subdomain: string;
+  image: string;
+  status: InstanceStatus;
+  port: number;
+  containerName: string;
+  envVars: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+  lastError: string | null;
 };
 
 export type ClientRole = "viewer" | "operator";
@@ -52,7 +76,14 @@ type State = {
   users: User[];
   mappings: WorkflowMapping[];
   errors: ErrorEvent[];
-  next: { client: number; user: number; mapping: number; error: number };
+  instances: Instance[];
+  next: {
+    client: number;
+    user: number;
+    mapping: number;
+    error: number;
+    instance: number;
+  };
 };
 
 declare global {
@@ -81,9 +112,42 @@ export function verifyPassword(
 function seed(s: State) {
   const nowIso = new Date().toISOString();
 
-  const acme: Client = { id: s.next.client++, name: "Acme Corp", createdAt: nowIso };
-  const globex: Client = { id: s.next.client++, name: "Globex Industries", createdAt: nowIso };
+  const acme: Client = {
+    id: s.next.client++,
+    name: "Acme Corp",
+    createdAt: nowIso,
+    tenancyMode: "shared",
+  };
+  const globex: Client = {
+    id: s.next.client++,
+    name: "Globex Industries",
+    createdAt: nowIso,
+    tenancyMode: "dedicated",
+  };
   s.clients.push(acme, globex);
+
+  // demo instance for Globex (dedicated tenant)
+  s.instances.push({
+    id: s.next.instance++,
+    clientId: globex.id,
+    subdomain: "globex",
+    image: "n8nio/n8n:1.95.0",
+    status: "running",
+    port: 5102,
+    containerName: "n8n_globex",
+    envVars: {
+      N8N_HOST: "globex.n8n.example.com",
+      N8N_PROTOCOL: "https",
+      WEBHOOK_URL: "https://globex.n8n.example.com",
+      GENERIC_TIMEZONE: "Europe/Oslo",
+      DB_TYPE: "postgresdb",
+      DB_POSTGRESDB_HOST: "globex_db",
+      DB_POSTGRESDB_DATABASE: "n8n",
+    },
+    createdAt: new Date(Date.now() - 14 * 86400_000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 86400_000).toISOString(),
+    lastError: null,
+  });
 
   function user(
     email: string,
@@ -179,7 +243,8 @@ function getState(): State {
       users: [],
       mappings: [],
       errors: [],
-      next: { client: 1, user: 1, mapping: 1, error: 1 },
+      instances: [],
+      next: { client: 1, user: 1, mapping: 1, error: 1, instance: 1 },
     };
   }
   if (!global.__store.seeded) seed(global.__store);
@@ -217,15 +282,22 @@ export const clients = {
   findById(id: number): Client | undefined {
     return getState().clients.find((c) => c.id === id);
   },
-  create(name: string): Client {
+  create(name: string, tenancyMode: TenancyMode = "shared"): Client {
     const s = getState();
     const c: Client = {
       id: s.next.client++,
       name,
       createdAt: new Date().toISOString(),
+      tenancyMode,
     };
     s.clients.push(c);
     return c;
+  },
+  setTenancyMode(id: number, tenancyMode: TenancyMode): boolean {
+    const c = this.findById(id);
+    if (!c) return false;
+    c.tenancyMode = tenancyMode;
+    return true;
   },
   rename(id: number, name: string): boolean {
     const c = this.findById(id);
@@ -238,8 +310,9 @@ export const clients = {
     const before = s.clients.length;
     s.clients = s.clients.filter((c) => c.id !== id);
     if (s.clients.length === before) return false;
-    // cascade: drop mappings + unlink users
+    // cascade: drop mappings, instances + unlink users
     s.mappings = s.mappings.filter((m) => m.clientId !== id);
+    s.instances = s.instances.filter((i) => i.clientId !== id);
     for (const u of s.users) {
       if (u.clientId === id) {
         u.clientId = null;
@@ -247,6 +320,59 @@ export const clients = {
       }
     }
     return true;
+  },
+};
+
+export const instances = {
+  all(): Instance[] {
+    return getState().instances;
+  },
+  forClient(clientId: number): Instance | undefined {
+    return getState().instances.find((i) => i.clientId === clientId);
+  },
+  findById(id: number): Instance | undefined {
+    return getState().instances.find((i) => i.id === id);
+  },
+  create(input: {
+    clientId: number;
+    subdomain: string;
+    image: string;
+    envVars: Record<string, string>;
+  }): Instance {
+    const s = getState();
+    const port = 5100 + s.instances.length + 1;
+    const inst: Instance = {
+      id: s.next.instance++,
+      clientId: input.clientId,
+      subdomain: input.subdomain,
+      image: input.image,
+      status: "provisioning",
+      port,
+      containerName: `n8n_${input.subdomain}`,
+      envVars: input.envVars,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastError: null,
+    };
+    s.instances.push(inst);
+    return inst;
+  },
+  patch(
+    id: number,
+    changes: Partial<
+      Pick<Instance, "image" | "envVars" | "status" | "lastError">
+    >
+  ): Instance | undefined {
+    const inst = this.findById(id);
+    if (!inst) return undefined;
+    Object.assign(inst, changes, { updatedAt: new Date().toISOString() });
+    return inst;
+  },
+  remove(id: number): boolean {
+    const s = getState();
+    const before = s.instances.length;
+    s.instances = s.instances.filter((i) => i.id !== id);
+    return s.instances.length < before;
   },
 };
 

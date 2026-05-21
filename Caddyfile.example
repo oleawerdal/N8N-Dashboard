@@ -1,0 +1,31 @@
+# Caddy reverse proxy config. Copy to ./Caddyfile and edit the domains.
+# Caddy handles automatic HTTPS via Let's Encrypt for every site.
+
+# The dashboard
+admin.n8n.example.com {
+    # Optional: lock to a few IPs for the admin UI
+    # @allowed remote_ip 203.0.113.10 198.51.100.0/24
+    # handle_errors { respond "Forbidden" 403 }
+    # @notAllowed not remote_ip 203.0.113.10 198.51.100.0/24
+    # respond @notAllowed "Forbidden" 403
+
+    reverse_proxy dashboard:3000
+}
+
+# The shared n8n
+n8n.example.com {
+    reverse_proxy n8n_shared:5678
+}
+
+# Per-customer dedicated instances. The dashboard provisions containers
+# with the label `caddy = <subdomain>.n8n.example.com` and Caddy's docker
+# plugin (caddy-docker-proxy) picks them up automatically.
+#
+# Until you install caddy-docker-proxy, add static blocks per customer:
+#
+#   acme.n8n.example.com {
+#       reverse_proxy n8n_acme:5678
+#   }
+#   globex.n8n.example.com {
+#       reverse_proxy n8n_globex:5678
+#   }

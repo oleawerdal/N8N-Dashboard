@@ -24,12 +24,15 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     await requireAdmin();
-    const { name } = (await req.json()) as { name?: string };
+    const { name, tenancyMode } = (await req.json()) as {
+      name?: string;
+      tenancyMode?: "shared" | "dedicated";
+    };
     if (!name) {
       return NextResponse.json({ error: "name required" }, { status: 400 });
     }
-    const c = clients.create(name);
-    return NextResponse.json({ id: c.id });
+    const c = clients.create(name, tenancyMode ?? "shared");
+    return NextResponse.json({ id: c.id, tenancyMode: c.tenancyMode });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
     const status =

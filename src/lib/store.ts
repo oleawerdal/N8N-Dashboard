@@ -97,14 +97,34 @@ export type Settings = {
     };
     passkeys: { enabled: boolean };
   };
+  mail: {
+    provider: "smtp2go" | "none";
+    apiKeySet: boolean;
+    fromEmail: string;
+    fromName: string;
+    lastTestAt: string | null;
+    lastTestOk: boolean | null;
+    lastTestError: string | null;
+  };
   emails: Record<string, { subject: string; body: string }>;
+};
+
+// Secrets live outside Settings so we don't accidentally JSON-serialize
+// them in API responses. Only accessed server-side via mail.ts.
+type Secrets = {
+  mailApiKey: string | null;
 };
 
 export const EMAIL_TEMPLATES = [
   {
     key: "invite",
     label: "User invitation",
-    sample: { name: "Anna", inviterName: "Ole", loginUrl: "https://…" },
+    sample: {
+      name: "Anna",
+      inviterName: "Ole",
+      loginUrl: "https://…",
+      tempPassword: "Xq7n-Ab3-pT9k",
+    },
   },
   {
     key: "passwordReset",
@@ -127,7 +147,7 @@ export const EMAIL_TEMPLATES = [
 // Bump when the State shape changes. Warm Vercel lambdas can hold a
 // `global.__store` from a previous deploy where new fields don't exist;
 // without this guard accesses would crash on first request.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 type State = {
   schemaVersion: number;
@@ -138,6 +158,7 @@ type State = {
   errors: ErrorEvent[];
   instances: Instance[];
   settings: Settings;
+  secrets: Secrets;
   next: {
     client: number;
     user: number;
@@ -330,11 +351,21 @@ function defaultSettings(): Settings {
       mfa: { enforced: ["admin"] },
       passkeys: { enabled: true },
     },
+    mail: {
+      provider: "none",
+      apiKeySet: false,
+      // Allow env-based bootstrap so a Vercel admin can seed once.
+      fromEmail: process.env.MAIL_FROM_EMAIL || "noreply@example.com",
+      fromName: process.env.MAIL_FROM_NAME || "n8n Dashboard",
+      lastTestAt: null,
+      lastTestOk: null,
+      lastTestError: null,
+    },
     emails: {
       invite: {
         subject: "{{brandName}}: you've been invited",
         body:
-          "Hi {{name}},\n\n{{inviterName}} has invited you to {{brandName}}.\n\nSign in: {{loginUrl}}\n\n— The {{brandName}} team",
+          "Hi {{name}},\n\n{{inviterName}} has invited you to {{brandName}}.\n\nSign in here: {{loginUrl}}\nTemporary password: {{tempPassword}}\n\nYou'll be asked to set a new password the first time you sign in.\n\n— The {{brandName}} team",
       },
       passwordReset: {
         subject: "Reset your {{brandName}} password",
@@ -355,6 +386,12 @@ function getState(): State {
     !global.__store ||
     global.__store.schemaVersion !== SCHEMA_VERSION
   ) {
+    const settings = defaultSettings();
+    const envApiKey = process.env.SMTP2GO_API_KEY || null;
+    if (envApiKey) {
+      settings.mail.provider = "smtp2go";
+      settings.mail.apiKeySet = true;
+    }
     global.__store = {
       schemaVersion: SCHEMA_VERSION,
       seeded: false,
@@ -363,7 +400,8 @@ function getState(): State {
       mappings: [],
       errors: [],
       instances: [],
-      settings: defaultSettings(),
+      settings,
+      secrets: { mailApiKey: envApiKey },
       next: { client: 1, user: 1, mapping: 1, error: 1, instance: 1 },
     };
   }
@@ -476,6 +514,38 @@ export const settings = {
     if (!(key in s.settings.emails)) return false;
     s.settings.emails[key] = template;
     return true;
+  },
+  updateMail(input: {
+    provider?: "smtp2go" | "none";
+    apiKey?: string;
+    fromEmail?: string;
+    fromName?: string;
+  }) {
+    const s = getState();
+    if (input.provider !== undefined) s.settings.mail.provider = input.provider;
+    if (input.fromEmail !== undefined)
+      s.settings.mail.fromEmail = input.fromEmail;
+    if (input.fromName !== undefined) s.settings.mail.fromName = input.fromName;
+    if (input.apiKey !== undefined) {
+      const trimmed = input.apiKey.trim();
+      if (trimmed) {
+        s.secrets.mailApiKey = trimmed;
+        s.settings.mail.apiKeySet = true;
+      } else if (trimmed === "") {
+        // Empty string = clear
+        s.secrets.mailApiKey = null;
+        s.settings.mail.apiKeySet = false;
+      }
+    }
+  },
+  recordMailTest(ok: boolean, error: string | null) {
+    const s = getState();
+    s.settings.mail.lastTestAt = new Date().toISOString();
+    s.settings.mail.lastTestOk = ok;
+    s.settings.mail.lastTestError = error;
+  },
+  _internalMailKey(): string | null {
+    return getState().secrets.mailApiKey;
   },
 };
 

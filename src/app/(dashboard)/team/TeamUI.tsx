@@ -270,6 +270,9 @@ function InviteForm({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState<
+    { ok: boolean; error?: string } | null
+  >(null);
 
   async function submit() {
     setBusy(true);
@@ -286,8 +289,33 @@ function InviteForm({ onClose }: { onClose: () => void }) {
       return;
     }
     const j = await res.json();
-    if (j.tempPassword) setTempPassword(j.tempPassword);
-    else onClose();
+    setEmailSent(j.emailSent ?? null);
+    if (j.emailSent?.ok) {
+      // Mail delivered → no need to surface the temp password.
+      setTempPassword(null);
+    } else if (j.tempPassword) {
+      setTempPassword(j.tempPassword);
+    } else {
+      onClose();
+    }
+    if (j.emailSent?.ok && !j.tempPassword) onClose();
+  }
+
+  // Success: email sent, no password fallback needed.
+  if (emailSent?.ok && !tempPassword) {
+    return (
+      <div className="card p-4 sm:p-5 space-y-3 border-emerald-700/40">
+        <h3 className="font-semibold text-emerald-300">Invite emailed</h3>
+        <p className="text-sm text-muted">
+          {name} ({email}) will receive a sign-in link with a temporary password.
+        </p>
+        <div className="flex justify-end">
+          <button onClick={onClose} className="btn btn-primary">
+            Done
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (tempPassword) {
@@ -295,9 +323,9 @@ function InviteForm({ onClose }: { onClose: () => void }) {
       <div className="card p-4 sm:p-5 space-y-3 border-accent/40">
         <h3 className="font-semibold">Invited {email}</h3>
         <p className="text-sm text-muted">
-          Email-based invitation isn't wired up yet, so copy this temporary
-          password to send to them manually. They can change it after the first
-          login.
+          {emailSent?.ok === false
+            ? `Mail delivery failed (${emailSent.error}). Copy this temporary password and send it manually:`
+            : "Mail provider isn't configured yet, so copy this temporary password and send it manually. They can change it after first sign-in."}
         </p>
         <div className="font-mono text-base bg-[#0b0e14] border border-border rounded-md px-3 py-2 break-all">
           {tempPassword}

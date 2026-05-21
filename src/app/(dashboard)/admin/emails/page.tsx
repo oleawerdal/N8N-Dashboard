@@ -13,6 +13,7 @@ export default async function EmailsPage() {
 
   const all = settings.read().emails;
   const branding = settings.read().branding;
+  const mail = settings.read().mail;
   const templates = EMAIL_TEMPLATES.map((t) => ({
     key: t.key,
     label: t.label,
@@ -25,17 +26,20 @@ export default async function EmailsPage() {
     <div className="space-y-4 sm:space-y-6 max-w-3xl">
       <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold">Email templates</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold">Email</h1>
           <p className="text-muted text-sm">
-            Outbound emails the dashboard sends. {"{{variables}}"} are
-            substituted before sending.
+            Provider configuration and templates for outbound mail.
           </p>
         </div>
         <Link href="/admin" className="text-sm text-accent hover:underline">
           ← Back to admin
         </Link>
       </div>
-      <EmailsUI templates={templates} brandName={branding.brandName} />
+      <EmailsUI
+        templates={templates}
+        brandName={branding.brandName}
+        mail={mail}
+      />
     </div>
   );
 }

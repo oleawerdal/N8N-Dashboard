@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireClientAdmin } from "@/lib/session";
-import { users } from "@/lib/store";
+import { settings, users } from "@/lib/store";
+import { renderTemplate, sendMail } from "@/lib/mail";
 
 export async function GET() {
   try {
@@ -45,11 +46,36 @@ export async function POST(req: Request) {
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 409 });
     }
+    const tempPassword = (result as { _tempPassword?: string })._tempPassword ?? null;
+
+    // Try to send the invite via SMTP2Go. If it's not configured, fall
+    // back to returning the temp password so the client admin can pass
+    // it on manually.
+    let emailSent: { ok: boolean; error?: string } | null = null;
+    const mailCfg = settings.read().mail;
+    if (mailCfg.provider !== "none" && mailCfg.apiKeySet && tempPassword) {
+      const origin = req.headers.get("origin") || "";
+      const tpl = renderTemplate("invite", {
+        name: result.name,
+        inviterName: me.name,
+        loginUrl: `${origin}/login`,
+        tempPassword,
+      });
+      if (tpl) {
+        const send = await sendMail({
+          to: result.email,
+          toName: result.name,
+          subject: tpl.subject,
+          body: tpl.body,
+        });
+        emailSent = send.ok ? { ok: true } : { ok: false, error: send.error };
+      }
+    }
+
     return NextResponse.json({
       user: scrub(result),
-      // Surface the temp password until the email-invite flow is wired.
-      tempPassword:
-        (result as { _tempPassword?: string })._tempPassword ?? null,
+      tempPassword,
+      emailSent,
     });
   } catch (e) {
     return errorResponse(e);

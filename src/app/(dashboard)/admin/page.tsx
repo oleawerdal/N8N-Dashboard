@@ -1,4 +1,5 @@
-import { requireAdmin } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/session";
 import { clients, instances, mappings, users } from "@/lib/store";
 import { N8N_LIVE, _mock } from "@/lib/n8n";
 import { AdminUI } from "./AdminUI";
@@ -38,7 +39,9 @@ async function listAllN8nWorkflows(): Promise<
 }
 
 export default async function AdminPage() {
-  await requireAdmin();
+  const session = await getSession();
+  if (!session.user) redirect("/login?next=/admin");
+  if (session.user.role !== "admin") redirect("/?notAdmin=1");
   const allClients = clients.list();
   const allMaps = mappings.all();
   const allWorkflows = await listAllN8nWorkflows();

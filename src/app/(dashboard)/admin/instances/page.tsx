@@ -1,4 +1,5 @@
-import { requireAdmin } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/session";
 import { clients, instances } from "@/lib/store";
 import { DOCKER_LIVE } from "@/lib/docker";
 import { InstancesUI } from "./InstancesUI";
@@ -7,7 +8,9 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 export default async function InstancesPage() {
-  await requireAdmin();
+  const session = await getSession();
+  if (!session.user) redirect("/login?next=/admin/instances");
+  if (session.user.role !== "admin") redirect("/?notAdmin=1");
   const allClients = clients.list();
   const allInstances = instances.all();
 

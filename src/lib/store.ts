@@ -70,7 +70,14 @@ export type ErrorEvent = {
   acknowledged: boolean;
 };
 
+// Bump when the State shape changes. Warm Vercel lambdas can hold a
+// `global.__store` from a previous deploy where new fields (e.g.
+// `instances`) don't exist; without this guard `getState().instances`
+// would be undefined and crash on first access.
+const SCHEMA_VERSION = 2;
+
 type State = {
+  schemaVersion: number;
   seeded: boolean;
   clients: Client[];
   users: User[];
@@ -236,8 +243,12 @@ function seed(s: State) {
 }
 
 function getState(): State {
-  if (!global.__store) {
+  if (
+    !global.__store ||
+    global.__store.schemaVersion !== SCHEMA_VERSION
+  ) {
     global.__store = {
+      schemaVersion: SCHEMA_VERSION,
       seeded: false,
       clients: [],
       users: [],

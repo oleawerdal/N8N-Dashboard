@@ -1,0 +1,421 @@
+{
+  "name": "HaloPSA → 24SevenOffice: Invoice Sync",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "halo-invoice-created",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111101",
+      "name": "Halo Invoice Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 320],
+      "webhookId": "halo-invoice-created-hook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-1",
+              "name": "haloApiBase",
+              "value": "https://YOUR-TENANT.halopsa.com/api",
+              "type": "string"
+            },
+            {
+              "id": "cfg-2",
+              "name": "twentyFourApiBase",
+              "value": "https://rest.api.24sevenoffice.com/v1",
+              "type": "string"
+            },
+            {
+              "id": "cfg-3",
+              "name": "orgNumberQueryParam",
+              "value": "corporateId",
+              "type": "string"
+            },
+            {
+              "id": "cfg-4",
+              "name": "defaultTaxCode",
+              "value": "3",
+              "type": "string"
+            },
+            {
+              "id": "cfg-5",
+              "name": "defaultCountry",
+              "value": "NO",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111102",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.haloApiBase }}/Invoice/{{ $('Halo Invoice Webhook').item.json.body.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111103",
+      "name": "Get Halo Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 320],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "halo-oauth2",
+          "name": "HaloPSA OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.haloApiBase }}/Client/{{ $('Get Halo Invoice').item.json.client_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111104",
+      "name": "Get Halo Client",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 320],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "halo-oauth2",
+          "name": "HaloPSA OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize the HaloPSA client into a system-neutral customer object.\n// NOTE: Halo's org/VAT number field name varies per instance and was NOT\n// verifiable from the API libraries. Adjust the candidate fields below to\n// whatever your Halo tenant uses (check GET /api/Client/{id} in your Swagger).\nconst client = $input.first().json;\n\nconst orgNumber = String(\n  client.taxnumber ?? client.accountsid ?? client.vatnumber ?? client.registrationnumber ?? ''\n).replace(/\\s/g, '');\n\nreturn [\n  {\n    json: {\n      orgNumber,\n      name: client.name ?? '',\n      email: client.emailaddress ?? client.email ?? '',\n      phone: client.telephone ?? client.phonenumber ?? '',\n      address: client.address ?? '',\n      city: client.city ?? '',\n      postcode: client.postcode ?? '',\n      country: client.country ?? $('Config').first().json.defaultCountry,\n      haloClientId: client.id,\n    },\n  },\n];\n"
+      },
+      "id": "11111111-1111-1111-1111-111111111105",
+      "name": "Normalize Customer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 320]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.twentyFourApiBase }}/customers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "={{ $('Config').item.json.orgNumberQueryParam }}",
+              "value": "={{ $('Normalize Customer').item.json.orgNumber }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111106",
+      "name": "Find 24SO Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 320],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "24so-oauth2",
+          "name": "24SevenOffice OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Match the Halo customer to an existing 24SO customer by organization number.\n// We filter in code (not just via the query param) so a wrong/ignored query\n// param can't cause a false 'no match'. The 24SO org-number field name is NOT\n// verified — adjust the candidate list below to your tenant's schema.\nconst res = $input.first().json;\nconst list = Array.isArray(res)\n  ? res\n  : (res.data ?? res.items ?? res.customers ?? res.value ?? res.results ?? []);\n\nconst digits = (s) => String(s ?? '').replace(/\\D/g, '');\nconst target = digits($('Normalize Customer').first().json.orgNumber);\n\nconst match = target\n  ? list.find((c) =>\n      [c.corporateId, c.organizationNumber, c.orgNumber, c.vatNumber, c.registrationNumber, c.organizationNo]\n        .some((v) => digits(v) && digits(v) === target)\n    )\n  : null;\n\nreturn [\n  {\n    json: {\n      matched: !!match,\n      customerId: match ? (match.id ?? match.customerId ?? match.customerNo ?? null) : null,\n      orgNumber: $('Normalize Customer').first().json.orgNumber,\n    },\n  },\n];\n"
+      },
+      "id": "11111111-1111-1111-1111-111111111107",
+      "name": "Match Org Number",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-match",
+              "leftValue": "={{ $json.matched }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111108",
+      "name": "Customer Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1540, 320]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "use-1",
+              "name": "customerId",
+              "value": "={{ $('Match Org Number').item.json.customerId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111109",
+      "name": "Use Existing Customer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.twentyFourApiBase }}/customers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $('Normalize Customer').item.json.name }}\",\n  \"corporateId\": \"{{ $('Normalize Customer').item.json.orgNumber }}\",\n  \"email\": \"{{ $('Normalize Customer').item.json.email }}\",\n  \"phone\": \"{{ $('Normalize Customer').item.json.phone }}\",\n  \"invoiceAddress\": {\n    \"address\": \"{{ $('Normalize Customer').item.json.address }}\",\n    \"city\": \"{{ $('Normalize Customer').item.json.city }}\",\n    \"postalCode\": \"{{ $('Normalize Customer').item.json.postcode }}\",\n    \"country\": \"{{ $('Normalize Customer').item.json.country }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111110",
+      "name": "Create 24SO Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 440],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "24so-oauth2",
+          "name": "24SevenOffice OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "new-1",
+              "name": "customerId",
+              "value": "={{ $json.id ?? $json.customerId ?? $json.customerNo }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Set New CustomerId",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2000, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.twentyFourApiBase }}/salesOrders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"customerId\": \"{{ $json.customerId }}\",\n  \"currency\": \"{{ $('Get Halo Invoice').item.json.currency_code }}\",\n  \"orderDate\": \"{{ $('Get Halo Invoice').item.json.invoice_date }}\",\n  \"dueDate\": \"{{ $('Get Halo Invoice').item.json.duedate }}\",\n  \"reference\": \"{{ $('Get Halo Invoice').item.json.invoicenumber }}\",\n  \"status\": \"Draft\"\n}",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111112",
+      "name": "Create Sales Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2240, 320],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "24so-oauth2",
+          "name": "24SevenOffice OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map Halo invoice lines → 24SO sales-order lines and resolve the new order id.\n// Both the Halo line field names and the 24SO line field names are NOT verified\n// — adjust the mappings to match your two instances.\nconst inv = $('Get Halo Invoice').first().json;\nconst cfg = $('Config').first().json;\nconst order = $('Create Sales Order').first().json;\n\nconst orderId = order.id ?? order.orderId ?? order.salesOrderId ?? order.Id;\nconst haloLines = inv.lines ?? inv.invoicelines ?? [];\n\nconst lines = haloLines.map((l) => ({\n  description: l.description ?? l.detail ?? l.item ?? '',\n  productId: l.product_id ?? l.productid ?? null,\n  quantity: Number(l.quantity ?? l.qty ?? 1),\n  price: Number(l.unitprice ?? l.unit_price ?? l.baseprice ?? l.price ?? 0),\n  discountRate: Number(l.discount ?? l.discountrate ?? 0),\n  taxCode: l.taxcode ?? l.tax_code ?? cfg.defaultTaxCode,\n}));\n\nreturn [{ json: { orderId, lines } }];\n"
+      },
+      "id": "11111111-1111-1111-1111-111111111113",
+      "name": "Build Lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2460, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.twentyFourApiBase }}/salesOrders/{{ $('Build Lines').item.json.orderId }}/lines",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Build Lines').item.json.lines) }}",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111114",
+      "name": "Add Order Lines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2680, 320],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "24so-oauth2",
+          "name": "24SevenOffice OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').item.json.twentyFourApiBase }}/salesOrders/{{ $('Build Lines').item.json.orderId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"Invoice\"\n}",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111115",
+      "name": "Issue Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2900, 320],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "24so-oauth2",
+          "name": "24SevenOffice OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.haloApiBase }}/Invoice",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[\n  {\n    \"id\": {{ $('Get Halo Invoice').item.json.id }},\n    \"thirdpartyid\": \"{{ $('Build Lines').item.json.orderId }}\"\n  }\n]",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111116",
+      "name": "Write Back 24SO Ref to Halo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3120, 320],
+      "disabled": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "halo-oauth2",
+          "name": "HaloPSA OAuth2 (client credentials)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"ok\",\n  \"haloInvoiceId\": \"{{ $('Get Halo Invoice').item.json.id }}\",\n  \"salesOrderId\": \"{{ $('Build Lines').item.json.orderId }}\"\n}",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111117",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [3340, 320]
+    }
+  ],
+  "connections": {
+    "Halo Invoice Webhook": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "Get Halo Invoice", "type": "main", "index": 0 }]]
+    },
+    "Get Halo Invoice": {
+      "main": [[{ "node": "Get Halo Client", "type": "main", "index": 0 }]]
+    },
+    "Get Halo Client": {
+      "main": [[{ "node": "Normalize Customer", "type": "main", "index": 0 }]]
+    },
+    "Normalize Customer": {
+      "main": [[{ "node": "Find 24SO Customer", "type": "main", "index": 0 }]]
+    },
+    "Find 24SO Customer": {
+      "main": [[{ "node": "Match Org Number", "type": "main", "index": 0 }]]
+    },
+    "Match Org Number": {
+      "main": [[{ "node": "Customer Exists?", "type": "main", "index": 0 }]]
+    },
+    "Customer Exists?": {
+      "main": [
+        [{ "node": "Use Existing Customer", "type": "main", "index": 0 }],
+        [{ "node": "Create 24SO Customer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Use Existing Customer": {
+      "main": [[{ "node": "Create Sales Order", "type": "main", "index": 0 }]]
+    },
+    "Create 24SO Customer": {
+      "main": [[{ "node": "Set New CustomerId", "type": "main", "index": 0 }]]
+    },
+    "Set New CustomerId": {
+      "main": [[{ "node": "Create Sales Order", "type": "main", "index": 0 }]]
+    },
+    "Create Sales Order": {
+      "main": [[{ "node": "Build Lines", "type": "main", "index": 0 }]]
+    },
+    "Build Lines": {
+      "main": [[{ "node": "Add Order Lines", "type": "main", "index": 0 }]]
+    },
+    "Add Order Lines": {
+      "main": [[{ "node": "Issue Invoice", "type": "main", "index": 0 }]]
+    },
+    "Issue Invoice": {
+      "main": [[{ "node": "Write Back 24SO Ref to Halo", "type": "main", "index": 0 }]]
+    },
+    "Write Back 24SO Ref to Halo": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    }
+  }
+}

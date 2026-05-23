@@ -111,13 +111,19 @@ export type Settings = {
     lastTestOk: boolean | null;
     lastTestError: string | null;
   };
+  n8n: {
+    mode: "mock" | "live";
+    baseUrl: string;
+    apiKeySet: boolean;
+  };
   emails: Record<string, { subject: string; body: string }>;
 };
 
 // Secrets live outside Settings so we don't accidentally JSON-serialize
-// them in API responses. Only accessed server-side via mail.ts.
+// them in API responses. Only accessed server-side via mail.ts / n8n.ts.
 type Secrets = {
   mailApiKey: string | null;
+  n8nApiKey: string | null;
 };
 
 export const EMAIL_TEMPLATES = [
@@ -152,7 +158,7 @@ export const EMAIL_TEMPLATES = [
 // Bump when the State shape changes in a way old in-memory copies can't
 // satisfy. On Postgres the loaded snapshot is normalized against the
 // current defaults rather than wiped, so a bump won't drop persisted data.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 type State = {
   schemaVersion: number;
@@ -235,6 +241,10 @@ function freshState(): State {
     settings.mail.provider = "smtp2go";
     settings.mail.apiKeySet = true;
   }
+  // Bootstrap the n8n connection from env so existing env-based deploys
+  // keep working; it's then editable in the admin UI and persisted.
+  const envN8nKey = process.env.N8N_API_KEY || null;
+  if (envN8nKey) settings.n8n.apiKeySet = true;
   return {
     schemaVersion: SCHEMA_VERSION,
     seeded: false,
@@ -244,7 +254,7 @@ function freshState(): State {
     errors: [],
     instances: [],
     settings,
-    secrets: { mailApiKey: envApiKey },
+    secrets: { mailApiKey: envApiKey, n8nApiKey: envN8nKey },
     next: { client: 1, user: 1, mapping: 1, error: 1, instance: 1 },
   };
 }
@@ -450,6 +460,14 @@ function defaultSettings(): Settings {
       lastTestOk: null,
       lastTestError: null,
     },
+    n8n: {
+      mode:
+        (process.env.N8N_MODE || "mock").toLowerCase() === "live"
+          ? "live"
+          : "mock",
+      baseUrl: (process.env.N8N_BASE_URL || "").replace(/\/$/, ""),
+      apiKeySet: false,
+    },
     emails: {
       invite: {
         subject: "{{brandName}}: you've been invited",
@@ -487,6 +505,7 @@ function normalize(data: Partial<State>): State {
       branding: { ...base.settings.branding, ...settings.branding },
       auth: { ...base.settings.auth, ...settings.auth },
       mail: { ...base.settings.mail, ...settings.mail },
+      n8n: { ...base.settings.n8n, ...settings.n8n },
       emails: { ...base.settings.emails, ...settings.emails },
     },
     secrets: { ...base.secrets, ...(data.secrets as Secrets | undefined) },
@@ -718,6 +737,31 @@ export const settings = {
   },
   async _internalMailKey(): Promise<string | null> {
     return (await getState()).secrets.mailApiKey;
+  },
+  async updateN8n(input: {
+    mode?: "mock" | "live";
+    baseUrl?: string;
+    apiKey?: string; // empty string = clear; undefined = leave alone
+  }): Promise<void> {
+    const s = await getState();
+    if (input.mode !== undefined) s.settings.n8n.mode = input.mode;
+    if (input.baseUrl !== undefined) {
+      s.settings.n8n.baseUrl = input.baseUrl.trim().replace(/\/$/, "");
+    }
+    if (input.apiKey !== undefined) {
+      const trimmed = input.apiKey.trim();
+      if (trimmed) {
+        s.secrets.n8nApiKey = trimmed;
+        s.settings.n8n.apiKeySet = true;
+      } else if (trimmed === "") {
+        s.secrets.n8nApiKey = null;
+        s.settings.n8n.apiKeySet = false;
+      }
+    }
+    await persist(s);
+  },
+  async _internalN8nKey(): Promise<string | null> {
+    return (await getState()).secrets.n8nApiKey;
   },
 };
 

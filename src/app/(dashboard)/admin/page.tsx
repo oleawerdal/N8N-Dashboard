@@ -1,42 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { clients, instances, mappings, users } from "@/lib/store";
-import { N8N_LIVE, _mock } from "@/lib/n8n";
+import { listAllWorkflows } from "@/lib/n8n";
 import { AdminUI } from "./AdminUI";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
-
-async function listAllN8nWorkflows(): Promise<
-  { id: string; name: string; active: boolean }[]
-> {
-  if (!N8N_LIVE) {
-    return _mock.workflows.map((w) => ({
-      id: w.id,
-      name: w.name,
-      active: w.active,
-    }));
-  }
-  const base = process.env.N8N_BASE_URL?.replace(/\/$/, "") || "";
-  const key = process.env.N8N_API_KEY || "";
-  try {
-    const res = await fetch(`${base}/api/v1/workflows?limit=250`, {
-      headers: { "X-N8N-API-KEY": key, Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const body = (await res.json()) as {
-      data: Array<{ id: string; name: string; active: boolean }>;
-    };
-    return body.data.map((w) => ({
-      id: w.id,
-      name: w.name,
-      active: w.active,
-    }));
-  } catch {
-    return [];
-  }
-}
 
 export default async function AdminPage() {
   const session = await getSession();
@@ -44,7 +13,7 @@ export default async function AdminPage() {
   if (session.user.role !== "admin") redirect("/?notAdmin=1");
   const allClients = await clients.list();
   const allMaps = await mappings.all();
-  const allWorkflows = await listAllN8nWorkflows();
+  const allWorkflows = await listAllWorkflows().catch(() => []);
 
   const data = await Promise.all(
     allClients.map(async (c) => {
@@ -91,6 +60,7 @@ export default async function AdminPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <AdminTile href="/admin/admins" label="Admins" />
+        <AdminTile href="/admin/n8n" label="n8n Connection" />
         <AdminTile href="/admin/instances" label="n8n Instances" />
         <AdminTile href="/admin/branding" label="Branding" />
         <AdminTile href="/admin/auth" label="Authentication" />

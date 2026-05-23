@@ -1,5 +1,8 @@
-// Thin wrapper around the n8n REST API. When N8N_MODE !== "live" we serve
-// deterministic mock data so the prototype is usable without a real instance.
+// Thin wrapper around the n8n REST API. Connection config (mode, base URL,
+// API key) is read from the admin settings store, so it can be managed in
+// the web UI and persisted — env vars only seed the initial values.
+
+import { settings } from "./store";
 
 export type N8nWorkflow = {
   id: string;
@@ -30,22 +33,35 @@ export type N8nExecution = {
   nodes: N8nNodeRun[];
 };
 
-const MODE = (process.env.N8N_MODE || "mock").toLowerCase();
-const BASE = process.env.N8N_BASE_URL?.replace(/\/$/, "") || "";
-const API_KEY = process.env.N8N_API_KEY || "";
+type N8nConfig = { live: boolean; base: string; apiKey: string };
 
-function headers() {
+async function n8nConfig(): Promise<N8nConfig> {
+  const cfg = await settings.read();
+  const apiKey = (await settings._internalN8nKey()) || "";
   return {
-    "X-N8N-API-KEY": API_KEY,
+    live: cfg.n8n.mode === "live",
+    base: cfg.n8n.baseUrl.replace(/\/$/, ""),
+    apiKey,
+  };
+}
+
+function headers(apiKey: string) {
+  return {
+    "X-N8N-API-KEY": apiKey,
     Accept: "application/json",
     "Content-Type": "application/json",
   };
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}/api/v1${path}`, {
+async function call<T>(
+  base: string,
+  apiKey: string,
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  const res = await fetch(`${base}/api/v1${path}`, {
     ...init,
-    headers: { ...headers(), ...(init?.headers || {}) },
+    headers: { ...headers(apiKey), ...(init?.headers || {}) },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -56,12 +72,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ---------- LIVE ----------
 
-async function liveListWorkflows(ids: string[]): Promise<N8nWorkflow[]> {
+async function liveListWorkflows(
+  base: string,
+  apiKey: string,
+  ids: string[]
+): Promise<N8nWorkflow[]> {
   if (ids.length === 0) return [];
   const out: N8nWorkflow[] = [];
   for (const id of ids) {
     try {
-      const wf = await call<N8nWorkflow>(`/workflows/${id}`);
+      const wf = await call<N8nWorkflow>(base, apiKey, `/workflows/${id}`);
       out.push(wf);
     } catch {
       // skip workflows the API key can't access or that don't exist
@@ -70,7 +90,19 @@ async function liveListWorkflows(ids: string[]): Promise<N8nWorkflow[]> {
   return out;
 }
 
+async function liveListAllWorkflows(
+  base: string,
+  apiKey: string
+): Promise<{ id: string; name: string; active: boolean }[]> {
+  const body = await call<{
+    data: Array<{ id: string; name: string; active: boolean }>;
+  }>(base, apiKey, `/workflows?limit=250`);
+  return body.data.map((w) => ({ id: w.id, name: w.name, active: w.active }));
+}
+
 async function liveListExecutions(
+  base: string,
+  apiKey: string,
   workflowId: string,
   limit = 25
 ): Promise<N8nExecution[]> {
@@ -98,6 +130,8 @@ async function liveListExecutions(
     }>;
   };
   const r = await call<Raw>(
+    base,
+    apiKey,
     `/executions?workflowId=${encodeURIComponent(workflowId)}&limit=${limit}&includeData=true`
   );
   return r.data.map((e) => {
@@ -241,17 +275,21 @@ function mockExecutionsFor(workflowId: string, count = 25): N8nExecution[] {
 
 // ---------- PUBLIC ----------
 
-export const N8N_LIVE = MODE === "live";
+export async function isN8nLive(): Promise<boolean> {
+  return (await n8nConfig()).live;
+}
 
 export async function listWorkflows(ids: string[]): Promise<N8nWorkflow[]> {
-  if (N8N_LIVE) return liveListWorkflows(ids);
+  const { live, base, apiKey } = await n8nConfig();
+  if (live) return liveListWorkflows(base, apiKey, ids);
   return MOCK_WORKFLOWS.filter((w) => ids.includes(w.id));
 }
 
 export async function getWorkflow(id: string): Promise<N8nWorkflow | null> {
-  if (N8N_LIVE) {
+  const { live, base, apiKey } = await n8nConfig();
+  if (live) {
     try {
-      return await call<N8nWorkflow>(`/workflows/${id}`);
+      return await call<N8nWorkflow>(base, apiKey, `/workflows/${id}`);
     } catch {
       return null;
     }
@@ -263,14 +301,32 @@ export async function listExecutions(
   workflowId: string,
   limit = 25
 ): Promise<N8nExecution[]> {
-  if (N8N_LIVE) return liveListExecutions(workflowId, limit);
+  const { live, base, apiKey } = await n8nConfig();
+  if (live) return liveListExecutions(base, apiKey, workflowId, limit);
   return mockExecutionsFor(workflowId, limit);
+}
+
+// Every workflow visible to the API key (live) or the full mock catalog.
+// Powers the admin "assign workflow to client" picker.
+export async function listAllWorkflows(): Promise<
+  { id: string; name: string; active: boolean }[]
+> {
+  const { live, base, apiKey } = await n8nConfig();
+  if (!live) {
+    return MOCK_WORKFLOWS.map((w) => ({
+      id: w.id,
+      name: w.name,
+      active: w.active,
+    }));
+  }
+  return liveListAllWorkflows(base, apiKey);
 }
 
 export async function runWorkflow(
   workflowId: string
 ): Promise<{ executionId: string }> {
-  if (N8N_LIVE) {
+  const { live } = await n8nConfig();
+  if (live) {
     const r = await liveRunWorkflow(workflowId);
     return { executionId: r.id };
   }
@@ -278,4 +334,22 @@ export async function runWorkflow(
   return { executionId: `exec_${workflowId}_manual_${Date.now()}` };
 }
 
-export const _mock = { workflows: MOCK_WORKFLOWS };
+// Test an arbitrary base URL / key (used by the admin "Test connection"
+// button before the config is saved). Returns the workflow count on success.
+export async function testN8nConnection(
+  base: string,
+  apiKey: string
+): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  const cleanBase = base.trim().replace(/\/$/, "");
+  if (!cleanBase) return { ok: false, error: "Base URL is required" };
+  try {
+    const body = await call<{ data: unknown[] }>(
+      cleanBase,
+      apiKey,
+      `/workflows?limit=1`
+    );
+    return { ok: true, count: Array.isArray(body.data) ? body.data.length : 0 };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

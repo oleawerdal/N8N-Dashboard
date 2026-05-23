@@ -85,11 +85,19 @@ On **Coolify**:
 
 ### Connecting your n8n server
 
-The dashboard talks to **one** n8n instance via the `N8N_*` env vars
-above — not through the admin UI. (The **Admin → n8n Instances** page is a
-separate, optional feature for provisioning *new* per-client n8n
-containers over Docker, and ships in mock mode.) Set `N8N_MODE=live`,
-`N8N_BASE_URL` and `N8N_API_KEY`, then redeploy.
+Configure it in the web UI under **Admin → n8n Connection**: set the mode
+to *live*, enter your n8n base URL and API key (Settings → API in n8n),
+and use **Test connection** to verify before saving. The API key is
+stored server-side and never sent to the browser. With Postgres the
+config persists across redeploys.
+
+The `N8N_MODE` / `N8N_BASE_URL` / `N8N_API_KEY` env vars still work — they
+just seed the *initial* values on first boot; after that the UI is the
+source of truth.
+
+(The **Admin → n8n Instances** page is a separate, optional feature for
+provisioning *new* per-client n8n containers over Docker, and ships in
+mock mode — it's not how you connect an existing server.)
 
 ## Wiring up error notifications
 

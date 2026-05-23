@@ -45,21 +45,39 @@ export function AdminUI({
   const router = useRouter();
   const [newClient, setNewClient] = useState("");
   const [newTenancy, setNewTenancy] = useState<TenancyMode>("shared");
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
   const [pickerOpenFor, setPickerOpenFor] = useState<number | null>(null);
 
   async function createClient() {
-    if (!newClient.trim()) return;
-    await fetch("/api/admin/clients", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newClient.trim(),
-        tenancyMode: newTenancy,
-      }),
-    });
-    setNewClient("");
-    setNewTenancy("shared");
-    router.refresh();
+    if (!newClient.trim()) {
+      setCreateErr("Enter a client name first.");
+      return;
+    }
+    setCreating(true);
+    setCreateErr(null);
+    try {
+      const res = await fetch("/api/admin/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newClient.trim(),
+          tenancyMode: newTenancy,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setCreateErr(j.error || `Failed to add client (HTTP ${res.status})`);
+        return;
+      }
+      setNewClient("");
+      setNewTenancy("shared");
+      router.refresh();
+    } catch (e) {
+      setCreateErr(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function changeTenancy(clientId: number, tenancyMode: TenancyMode) {
@@ -125,30 +143,44 @@ export function AdminUI({
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div className="card p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 sm:items-end">
-        <div>
-          <div className="label mb-1">New client name</div>
-          <input
-            className="input w-full"
-            value={newClient}
-            onChange={(e) => setNewClient(e.target.value)}
-            placeholder="e.g. Initech"
-          />
-        </div>
-        <div>
-          <div className="label mb-1">Tenancy</div>
-          <select
-            className="input w-full"
-            value={newTenancy}
-            onChange={(e) => setNewTenancy(e.target.value as TenancyMode)}
+      <div className="card p-4 sm:p-5 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 sm:items-end">
+          <div>
+            <div className="label mb-1">New client name</div>
+            <input
+              className="input w-full"
+              value={newClient}
+              onChange={(e) => setNewClient(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createClient();
+              }}
+              placeholder="e.g. Initech"
+            />
+          </div>
+          <div>
+            <div className="label mb-1">Tenancy</div>
+            <select
+              className="input w-full"
+              value={newTenancy}
+              onChange={(e) => setNewTenancy(e.target.value as TenancyMode)}
+            >
+              <option value="shared">shared</option>
+              <option value="dedicated">dedicated</option>
+            </select>
+          </div>
+          <button
+            onClick={createClient}
+            disabled={creating}
+            className="btn btn-primary"
           >
-            <option value="shared">shared</option>
-            <option value="dedicated">dedicated</option>
-          </select>
+            {creating ? "Adding..." : "Add client"}
+          </button>
         </div>
-        <button onClick={createClient} className="btn btn-primary">
-          Add client
-        </button>
+        {createErr && (
+          <div className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded-md px-3 py-2">
+            {createErr}
+          </div>
+        )}
       </div>
 
       {initial.map((c) => {

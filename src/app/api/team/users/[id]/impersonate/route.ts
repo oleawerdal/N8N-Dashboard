@@ -9,7 +9,7 @@ export async function POST(
   try {
     const me = await requireClientAdmin();
     const { id } = await params;
-    const target = users.findById(Number(id));
+    const target = await users.findById(Number(id));
     if (!target)
       return NextResponse.json({ error: "not found" }, { status: 404 });
     if (target.role === "admin") {

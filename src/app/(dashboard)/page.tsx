@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Overview() {
   const user = await requireUser();
-  const mappings = workflowsForUser(user);
+  const mappings = await workflowsForUser(user);
   const ids = [...new Set(mappings.map((m) => m.n8nWorkflowId))];
   const workflows = await listWorkflows(ids);
 
@@ -29,7 +29,7 @@ export default async function Overview() {
     0
   );
   const active = workflows.filter((w) => w.active).length;
-  const unread = errorsStore.unreadCountForWorkflows(ids);
+  const unread = await errorsStore.unreadCountForWorkflows(ids);
 
   return (
     <div className="space-y-8">

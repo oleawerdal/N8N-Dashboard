@@ -20,8 +20,8 @@ export default async function TeamPage() {
   }
 
   const clientId = me.clientId!;
-  const tenant = clients.findById(clientId);
-  const list = users.forClient(clientId).map((u) => ({
+  const tenant = await clients.findById(clientId);
+  const list = (await users.forClient(clientId)).map((u) => ({
     id: u.id,
     email: u.email,
     name: u.name,

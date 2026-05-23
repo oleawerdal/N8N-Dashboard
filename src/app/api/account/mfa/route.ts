@@ -8,12 +8,12 @@ export async function POST(req: Request) {
   try {
     const me = await requireUser();
     const { action } = (await req.json()) as { action?: "enable" | "disable" };
-    if (action === "enable") users.setMfa(me.id, true);
-    else if (action === "disable") users.setMfa(me.id, false);
+    if (action === "enable") await users.setMfa(me.id, true);
+    else if (action === "disable") await users.setMfa(me.id, false);
     else
       return NextResponse.json({ error: "unknown action" }, { status: 400 });
     return NextResponse.json({
-      mfaEnabled: users.findById(me.id)?.mfaEnabled ?? false,
+      mfaEnabled: (await users.findById(me.id))?.mfaEnabled ?? false,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

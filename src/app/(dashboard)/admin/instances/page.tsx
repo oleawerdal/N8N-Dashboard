@@ -11,8 +11,8 @@ export default async function InstancesPage() {
   const session = await getSession();
   if (!session.user) redirect("/login?next=/admin/instances");
   if (session.user.role !== "admin") redirect("/?notAdmin=1");
-  const allClients = clients.list();
-  const allInstances = instances.all();
+  const allClients = await clients.list();
+  const allInstances = await instances.all();
 
   // Clients eligible for an instance: dedicated tenancy + no instance yet.
   const eligibleClients = allClients

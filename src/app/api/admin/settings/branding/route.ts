@@ -12,7 +12,7 @@ export async function POST(req: Request) {
       primaryColor?: string;
       supportEmail?: string;
     };
-    settings.updateBranding({
+    await settings.updateBranding({
       ...(body.brandName !== undefined && { brandName: body.brandName }),
       ...(body.tagline !== undefined && { tagline: body.tagline }),
       ...(body.logoUrl !== undefined && { logoUrl: body.logoUrl || null }),
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
         supportEmail: body.supportEmail,
       }),
     });
-    return NextResponse.json({ branding: settings.read().branding });
+    return NextResponse.json({ branding: (await settings.read()).branding });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
     const status =

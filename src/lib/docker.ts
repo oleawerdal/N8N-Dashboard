@@ -35,15 +35,15 @@ export type LogLine = {
 
 export async function provisionInstance(input: ProvisionInput): Promise<Instance> {
   // Create the bookkeeping record first; we transition status as we go.
-  const inst = instances.create(input);
+  const inst = await instances.create(input);
 
   if (!DOCKER_LIVE) {
     // Mock: simulate provisioning succeeded after a short delay.
     // In a real prototype we'd want to flip status to "running" via
     // a setTimeout, but Vercel functions can't keep timers between
     // requests. Instead, flip immediately so the UI shows running.
-    instances.patch(inst.id, { status: "running" });
-    return instances.findById(inst.id)!;
+    await instances.patch(inst.id, { status: "running" });
+    return (await instances.findById(inst.id))!;
   }
 
   // --- LIVE path (sketch — fill in with dockerode):
@@ -78,13 +78,13 @@ export async function updateImage(
   instanceId: number,
   newImage: string
 ): Promise<Instance> {
-  const inst = instances.findById(instanceId);
+  const inst = await instances.findById(instanceId);
   if (!inst) throw new Error("instance not found");
 
   if (!DOCKER_LIVE) {
-    instances.patch(instanceId, { status: "updating" });
-    instances.patch(instanceId, { image: newImage, status: "running" });
-    return instances.findById(instanceId)!;
+    await instances.patch(instanceId, { status: "updating" });
+    await instances.patch(instanceId, { image: newImage, status: "running" });
+    return (await instances.findById(instanceId))!;
   }
 
   // LIVE: docker.pull(newImage) -> stop -> remove -> recreate with same
@@ -97,12 +97,12 @@ export async function updateEnv(
   instanceId: number,
   envVars: Record<string, string>
 ): Promise<Instance> {
-  const inst = instances.findById(instanceId);
+  const inst = await instances.findById(instanceId);
   if (!inst) throw new Error("instance not found");
 
   if (!DOCKER_LIVE) {
-    instances.patch(instanceId, { envVars, status: "running" });
-    return instances.findById(instanceId)!;
+    await instances.patch(instanceId, { envVars, status: "running" });
+    return (await instances.findById(instanceId))!;
   }
   // LIVE: env changes require container recreate (Docker can't mutate
   // env on a running container). Same recreate path as updateImage.
@@ -110,23 +110,23 @@ export async function updateEnv(
 }
 
 export async function restart(instanceId: number): Promise<Instance> {
-  const inst = instances.findById(instanceId);
+  const inst = await instances.findById(instanceId);
   if (!inst) throw new Error("instance not found");
 
   if (!DOCKER_LIVE) {
-    instances.patch(instanceId, { status: "running" });
-    return instances.findById(instanceId)!;
+    await instances.patch(instanceId, { status: "running" });
+    return (await instances.findById(instanceId))!;
   }
   // LIVE: const c = docker.getContainer(inst.containerName); await c.restart();
   throw new Error("DOCKER_MODE=real not yet implemented");
 }
 
 export async function destroy(instanceId: number): Promise<void> {
-  const inst = instances.findById(instanceId);
+  const inst = await instances.findById(instanceId);
   if (!inst) throw new Error("instance not found");
 
   if (!DOCKER_LIVE) {
-    instances.remove(instanceId);
+    await instances.remove(instanceId);
     return;
   }
   // LIVE: stop + remove container, optionally drop the named volume.
@@ -139,7 +139,7 @@ export async function tailLogs(
   instanceId: number,
   lines = 100
 ): Promise<LogLine[]> {
-  const inst = instances.findById(instanceId);
+  const inst = await instances.findById(instanceId);
   if (!inst) throw new Error("instance not found");
 
   if (!DOCKER_LIVE) {

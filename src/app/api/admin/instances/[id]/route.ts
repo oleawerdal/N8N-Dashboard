@@ -11,7 +11,7 @@ export async function PATCH(
     await requireAdmin();
     const { id } = await params;
     const instId = Number(id);
-    const inst = instances.findById(instId);
+    const inst = await instances.findById(instId);
     if (!inst)
       return NextResponse.json({ error: "not found" }, { status: 404 });
     const body = (await req.json()) as {

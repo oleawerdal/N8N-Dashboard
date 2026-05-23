@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ErrorsPage() {
   const user = await requireUser();
-  const allowed = workflowsForUser(user).map((r) => r.n8nWorkflowId);
-  const rows = errorsStore.recentForWorkflows(allowed, 100);
+  const allowed = (await workflowsForUser(user)).map((r) => r.n8nWorkflowId);
+  const rows = await errorsStore.recentForWorkflows(allowed, 100);
 
   return (
     <div className="space-y-6">

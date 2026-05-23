@@ -9,7 +9,7 @@ export async function PATCH(
   try {
     const me = await requireClientAdmin();
     const { id } = await params;
-    const target = users.findById(Number(id));
+    const target = await users.findById(Number(id));
     if (!target)
       return NextResponse.json({ error: "not found" }, { status: 404 });
     if (me.role !== "admin" && target.clientId !== me.clientId) {
@@ -23,7 +23,7 @@ export async function PATCH(
     const body = (await req.json()) as {
       clientRole?: "viewer" | "operator" | "client_admin";
     };
-    if (body.clientRole) users.updateClientRole(target.id, body.clientRole);
+    if (body.clientRole) await users.updateClientRole(target.id, body.clientRole);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);
@@ -37,7 +37,7 @@ export async function DELETE(
   try {
     const me = await requireClientAdmin();
     const { id } = await params;
-    const target = users.findById(Number(id));
+    const target = await users.findById(Number(id));
     if (!target)
       return NextResponse.json({ error: "not found" }, { status: 404 });
     if (me.role !== "admin" && target.clientId !== me.clientId) {
@@ -49,7 +49,7 @@ export async function DELETE(
         { status: 400 }
       );
     }
-    users.remove(target.id);
+    await users.remove(target.id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);

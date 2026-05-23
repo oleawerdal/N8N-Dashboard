@@ -42,40 +42,43 @@ export default async function AdminPage() {
   const session = await getSession();
   if (!session.user) redirect("/login?next=/admin");
   if (session.user.role !== "admin") redirect("/?notAdmin=1");
-  const allClients = clients.list();
-  const allMaps = mappings.all();
+  const allClients = await clients.list();
+  const allMaps = await mappings.all();
   const allWorkflows = await listAllN8nWorkflows();
 
-  const data = allClients.map((c) => {
-    const inst = instances.forClient(c.id);
-    return {
-      id: c.id,
-      name: c.name,
-      createdAt: c.createdAt,
-      tenancyMode: c.tenancyMode,
-      instance: inst
-        ? {
-            id: inst.id,
-            subdomain: inst.subdomain,
-            image: inst.image,
-            status: inst.status,
-          }
-        : null,
-      workflows: allMaps
-        .filter((m) => m.clientId === c.id)
-        .map((m) => ({
-          id: m.id,
-          n8nWorkflowId: m.n8nWorkflowId,
-          displayName: m.displayName,
+  const data = await Promise.all(
+    allClients.map(async (c) => {
+      const inst = await instances.forClient(c.id);
+      const clientUsers = await users.forClient(c.id);
+      return {
+        id: c.id,
+        name: c.name,
+        createdAt: c.createdAt,
+        tenancyMode: c.tenancyMode,
+        instance: inst
+          ? {
+              id: inst.id,
+              subdomain: inst.subdomain,
+              image: inst.image,
+              status: inst.status,
+            }
+          : null,
+        workflows: allMaps
+          .filter((m) => m.clientId === c.id)
+          .map((m) => ({
+            id: m.id,
+            n8nWorkflowId: m.n8nWorkflowId,
+            displayName: m.displayName,
+          })),
+        users: clientUsers.map((u) => ({
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          clientRole: (u.clientRole ?? "viewer") as "viewer" | "operator",
         })),
-      users: users.forClient(c.id).map((u) => ({
-        id: u.id,
-        email: u.email,
-        name: u.name,
-        clientRole: (u.clientRole ?? "viewer") as "viewer" | "operator",
-      })),
-    };
-  });
+      };
+    })
+  );
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -87,6 +90,7 @@ export default async function AdminPage() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <AdminTile href="/admin/admins" label="Admins" />
         <AdminTile href="/admin/instances" label="n8n Instances" />
         <AdminTile href="/admin/branding" label="Branding" />
         <AdminTile href="/admin/auth" label="Authentication" />

@@ -20,7 +20,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    mappings.create(clientId, n8nWorkflowId, displayName ?? null);
+    await mappings.create(clientId, n8nWorkflowId, displayName ?? null);
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
@@ -46,7 +46,7 @@ export async function DELETE(
         { status: 400 }
       );
     }
-    mappings.remove(clientId, wf);
+    await mappings.remove(clientId, wf);
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

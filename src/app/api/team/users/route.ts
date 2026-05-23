@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireClientAdmin } from "@/lib/session";
-import { settings, users } from "@/lib/store";
+import { settings, users, User } from "@/lib/store";
 import { renderTemplate, sendMail } from "@/lib/mail";
 
 export async function GET() {
@@ -13,7 +13,7 @@ export async function GET() {
         { error: "platform admin should use /api/admin/clients" },
         { status: 400 }
       );
-    const list = users.forClient(clientId).map(scrub);
+    const list = (await users.forClient(clientId)).map(scrub);
     return NextResponse.json({ users: list });
   } catch (e) {
     return errorResponse(e);
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
       );
     }
     const role = body.clientRole ?? "viewer";
-    const result = users.createInTenant({
+    const result = await users.createInTenant({
       email: body.email.trim().toLowerCase(),
       name: body.name.trim(),
       clientId: me.clientId,
@@ -52,10 +52,10 @@ export async function POST(req: Request) {
     // back to returning the temp password so the client admin can pass
     // it on manually.
     let emailSent: { ok: boolean; error?: string } | null = null;
-    const mailCfg = settings.read().mail;
+    const mailCfg = (await settings.read()).mail;
     if (mailCfg.provider !== "none" && mailCfg.apiKeySet && tempPassword) {
       const origin = req.headers.get("origin") || "";
-      const tpl = renderTemplate("invite", {
+      const tpl = await renderTemplate("invite", {
         name: result.name,
         inviterName: me.name,
         loginUrl: `${origin}/login`,
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   }
 }
 
-function scrub(u: ReturnType<typeof users.findByEmail> & object) {
+function scrub(u: User) {
   return {
     id: u.id,
     email: u.email,

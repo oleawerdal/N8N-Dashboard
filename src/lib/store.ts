@@ -1,13 +1,18 @@
-// In-memory data store. Backs the prototype on serverless platforms
-// (Vercel) where a filesystem DB wouldn't persist anyway. For real
-// production, replace with Postgres / Neon / Turso.
+// Application data store.
 //
-// Note: in serverless, "memory" resets on cold starts. That's fine for
-// a testing prototype — demo credentials and mappings re-seed every cold
-// start, and any admin changes / received errors live only for the
-// warm window. Document this clearly to anyone testing the deploy.
+// Two backends, selected at runtime:
+//   - DATABASE_URL set  -> Postgres. State is persisted as a JSON snapshot
+//     (see db.ts) and survives redeploys/restarts. A fresh database is
+//     seeded with a single platform admin only (no demo tenants).
+//   - DATABASE_URL unset -> in-memory. Seeded with the full demo data set
+//     so the prototype is clickable without any infra. Resets on restart.
+//
+// The public API is async because the Postgres backend loads/persists
+// asynchronously. The in-memory working copy is cached on `global.__store`
+// for the lifetime of the process.
 
 import crypto from "node:crypto";
+import { USE_PG, loadSnapshot, saveSnapshot } from "./db";
 
 export type TenancyMode = "shared" | "dedicated";
 
@@ -144,10 +149,10 @@ export const EMAIL_TEMPLATES = [
   },
 ] as const;
 
-// Bump when the State shape changes. Warm Vercel lambdas can hold a
-// `global.__store` from a previous deploy where new fields don't exist;
-// without this guard accesses would crash on first request.
-const SCHEMA_VERSION = 4;
+// Bump when the State shape changes in a way old in-memory copies can't
+// satisfy. On Postgres the loaded snapshot is normalized against the
+// current defaults rather than wiped, so a bump won't drop persisted data.
+const SCHEMA_VERSION = 5;
 
 type State = {
   schemaVersion: number;
@@ -179,19 +184,91 @@ function hashPw(password: string, salt?: string) {
   return { hash, salt: useSalt };
 }
 
-export function verifyPassword(
-  password: string,
-  hash: string,
-  salt: string
-) {
+export function verifyPassword(password: string, hash: string, salt: string) {
   const candidate = crypto.scryptSync(password, salt, 64).toString("hex");
-  return crypto.timingSafeEqual(
-    Buffer.from(candidate, "hex"),
-    Buffer.from(hash, "hex")
-  );
+  const a = Buffer.from(candidate, "hex");
+  const b = Buffer.from(hash, "hex");
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
-function seed(s: State) {
+function addUser(
+  s: State,
+  fields: {
+    email: string;
+    name: string;
+    password: string;
+    role: "admin" | "client";
+    clientId: number | null;
+    clientRole: ClientRole | null;
+    mfaEnabled?: boolean;
+    passkeyCount?: number;
+    ssoProvider?: "entra" | null;
+  }
+): User {
+  const { hash, salt } = hashPw(fields.password);
+  const u: User = {
+    id: s.next.user++,
+    email: fields.email,
+    name: fields.name,
+    passwordHash: hash,
+    passwordSalt: salt,
+    role: fields.role,
+    clientId: fields.clientId,
+    clientRole: fields.clientRole,
+    mfaEnabled: fields.mfaEnabled ?? false,
+    passkeyCount: fields.passkeyCount ?? 0,
+    ssoProvider: fields.ssoProvider ?? null,
+    createdAt: new Date().toISOString(),
+    lastLoginAt: null,
+  };
+  s.users.push(u);
+  return u;
+}
+
+// Fresh, empty state with default settings. Env-based mail bootstrap is
+// applied here so a first boot can pick up SMTP2GO_API_KEY automatically.
+function freshState(): State {
+  const settings = defaultSettings();
+  const envApiKey = process.env.SMTP2GO_API_KEY || null;
+  if (envApiKey) {
+    settings.mail.provider = "smtp2go";
+    settings.mail.apiKeySet = true;
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    seeded: false,
+    clients: [],
+    users: [],
+    mappings: [],
+    errors: [],
+    instances: [],
+    settings,
+    secrets: { mailApiKey: envApiKey },
+    next: { client: 1, user: 1, mapping: 1, error: 1, instance: 1 },
+  };
+}
+
+// Production seed (Postgres, fresh DB): a single platform admin so the
+// operator can sign in. Credentials come from env, falling back to the
+// well-known demo login (change it immediately).
+function seedInitialAdmin(s: State) {
+  addUser(s, {
+    email: (process.env.ADMIN_EMAIL || "admin@dashboard.local")
+      .trim()
+      .toLowerCase(),
+    name: process.env.ADMIN_NAME || "Platform Admin",
+    password: process.env.ADMIN_PASSWORD || "admin123",
+    role: "admin",
+    clientId: null,
+    clientRole: null,
+    mfaEnabled: false,
+  });
+  s.seeded = true;
+}
+
+// Demo seed (in-memory only): fictional tenants, users, mappings, errors.
+function seedDemo(s: State) {
   const nowIso = new Date().toISOString();
 
   const acme: Client = {
@@ -208,7 +285,6 @@ function seed(s: State) {
   };
   s.clients.push(acme, globex);
 
-  // demo instance for Globex (dedicated tenant)
   s.instances.push({
     id: s.next.instance++,
     clientId: globex.id,
@@ -231,43 +307,57 @@ function seed(s: State) {
     lastError: null,
   });
 
-  function user(
-    email: string,
-    name: string,
-    password: string,
-    role: "admin" | "client",
-    clientId: number | null,
-    clientRole: ClientRole | null,
-    extras: Partial<Pick<User, "mfaEnabled" | "passkeyCount" | "ssoProvider">> = {}
-  ) {
-    const { hash, salt } = hashPw(password);
-    s.users.push({
-      id: s.next.user++,
-      email,
-      name,
-      passwordHash: hash,
-      passwordSalt: salt,
-      role,
-      clientId,
-      clientRole,
-      mfaEnabled: extras.mfaEnabled ?? false,
-      passkeyCount: extras.passkeyCount ?? 0,
-      ssoProvider: extras.ssoProvider ?? null,
-      createdAt: nowIso,
-      lastLoginAt: null,
-    });
-  }
-  user("admin@dashboard.local", "Platform Admin", "admin123", "admin", null, null, {
+  addUser(s, {
+    email: "admin@dashboard.local",
+    name: "Platform Admin",
+    password: "admin123",
+    role: "admin",
+    clientId: null,
+    clientRole: null,
     mfaEnabled: true,
     passkeyCount: 1,
   });
-  user("acme-admin@dashboard.local", "Acme Admin", "acme123", "client", acme.id, "client_admin", {
+  addUser(s, {
+    email: "acme-admin@dashboard.local",
+    name: "Acme Admin",
+    password: "acme123",
+    role: "client",
+    clientId: acme.id,
+    clientRole: "client_admin",
     mfaEnabled: true,
   });
-  user("acme@dashboard.local", "Acme Operator", "acme123", "client", acme.id, "operator");
-  user("acme-viewer@dashboard.local", "Acme Viewer", "acme123", "client", acme.id, "viewer");
-  user("globex-admin@dashboard.local", "Globex Admin", "globex123", "client", globex.id, "client_admin");
-  user("globex@dashboard.local", "Globex Operator", "globex123", "client", globex.id, "operator");
+  addUser(s, {
+    email: "acme@dashboard.local",
+    name: "Acme Operator",
+    password: "acme123",
+    role: "client",
+    clientId: acme.id,
+    clientRole: "operator",
+  });
+  addUser(s, {
+    email: "acme-viewer@dashboard.local",
+    name: "Acme Viewer",
+    password: "acme123",
+    role: "client",
+    clientId: acme.id,
+    clientRole: "viewer",
+  });
+  addUser(s, {
+    email: "globex-admin@dashboard.local",
+    name: "Globex Admin",
+    password: "globex123",
+    role: "client",
+    clientId: globex.id,
+    clientRole: "client_admin",
+  });
+  addUser(s, {
+    email: "globex@dashboard.local",
+    name: "Globex Operator",
+    password: "globex123",
+    role: "client",
+    clientId: globex.id,
+    clientRole: "operator",
+  });
 
   function map(clientId: number, n8nWorkflowId: string, displayName: string | null) {
     s.mappings.push({
@@ -354,7 +444,6 @@ function defaultSettings(): Settings {
     mail: {
       provider: "none",
       apiKeySet: false,
-      // Allow env-based bootstrap so a Vercel admin can seed once.
       fromEmail: process.env.MAIL_FROM_EMAIL || "noreply@example.com",
       fromName: process.env.MAIL_FROM_NAME || "n8n Dashboard",
       lastTestAt: null,
@@ -381,147 +470,229 @@ function defaultSettings(): Settings {
   };
 }
 
-function getState(): State {
-  if (
-    !global.__store ||
-    global.__store.schemaVersion !== SCHEMA_VERSION
-  ) {
-    const settings = defaultSettings();
-    const envApiKey = process.env.SMTP2GO_API_KEY || null;
-    if (envApiKey) {
-      settings.mail.provider = "smtp2go";
-      settings.mail.apiKeySet = true;
-    }
-    global.__store = {
-      schemaVersion: SCHEMA_VERSION,
-      seeded: false,
-      clients: [],
-      users: [],
-      mappings: [],
-      errors: [],
-      instances: [],
-      settings,
-      secrets: { mailApiKey: envApiKey },
-      next: { client: 1, user: 1, mapping: 1, error: 1, instance: 1 },
-    };
+// Merge a loaded snapshot over current defaults so a schema bump that adds
+// fields doesn't crash on older persisted data — and never wipes it.
+function normalize(data: Partial<State>): State {
+  const base = freshState();
+  const settings = (data.settings ?? {}) as Partial<Settings>;
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    seeded: true,
+    clients: data.clients ?? [],
+    users: data.users ?? [],
+    mappings: data.mappings ?? [],
+    errors: data.errors ?? [],
+    instances: data.instances ?? [],
+    settings: {
+      branding: { ...base.settings.branding, ...settings.branding },
+      auth: { ...base.settings.auth, ...settings.auth },
+      mail: { ...base.settings.mail, ...settings.mail },
+      emails: { ...base.settings.emails, ...settings.emails },
+    },
+    secrets: { ...base.secrets, ...(data.secrets as Secrets | undefined) },
+    next: { ...base.next, ...(data.next as State["next"] | undefined) },
+  };
+}
+
+let statePromise: Promise<State> | null = null;
+
+async function initState(): Promise<State> {
+  if (USE_PG) {
+    const snap = await loadSnapshot();
+    if (snap) return normalize(snap.data as Partial<State>);
+    const s = freshState();
+    seedInitialAdmin(s);
+    await saveSnapshot(SCHEMA_VERSION, s);
+    return s;
   }
-  if (!global.__store.seeded) seed(global.__store);
-  return global.__store;
+  const s = freshState();
+  seedDemo(s);
+  return s;
+}
+
+async function getState(): Promise<State> {
+  if (global.__store && global.__store.schemaVersion === SCHEMA_VERSION) {
+    return global.__store;
+  }
+  if (!statePromise) {
+    statePromise = initState()
+      .then((s) => {
+        global.__store = s;
+        statePromise = null;
+        return s;
+      })
+      .catch((e) => {
+        statePromise = null;
+        throw e;
+      });
+  }
+  return statePromise;
+}
+
+async function persist(s: State): Promise<void> {
+  if (USE_PG) await saveSnapshot(SCHEMA_VERSION, s);
 }
 
 // ---------- queries ----------
 
 export const users = {
-  findById(id: number): User | undefined {
-    return getState().users.find((u) => u.id === id);
+  async findById(id: number): Promise<User | undefined> {
+    return (await getState()).users.find((u) => u.id === id);
   },
-  findByEmail(email: string): User | undefined {
-    return getState().users.find((u) => u.email === email);
+  async findByEmail(email: string): Promise<User | undefined> {
+    const lower = email.toLowerCase();
+    return (await getState()).users.find(
+      (u) => u.email.toLowerCase() === lower
+    );
   },
-  forClient(clientId: number): User[] {
-    return getState()
-      .users.filter((u) => u.role === "client" && u.clientId === clientId)
+  async forClient(clientId: number): Promise<User[]> {
+    return (await getState()).users
+      .filter((u) => u.role === "client" && u.clientId === clientId)
       .sort((a, b) => a.email.localeCompare(b.email));
   },
-  updateClientRole(id: number, role: ClientRole): boolean {
-    const u = this.findById(id);
+  async listAdmins(): Promise<User[]> {
+    return (await getState()).users
+      .filter((u) => u.role === "admin")
+      .sort((a, b) => a.email.localeCompare(b.email));
+  },
+  async updateClientRole(id: number, role: ClientRole): Promise<boolean> {
+    const s = await getState();
+    const u = s.users.find((x) => x.id === id);
     if (!u || u.role !== "client") return false;
     u.clientRole = role;
+    await persist(s);
     return true;
   },
-  createInTenant(input: {
+  async createAdmin(input: {
+    email: string;
+    name: string;
+    password: string;
+  }): Promise<User | { error: string }> {
+    const s = await getState();
+    const email = input.email.trim().toLowerCase();
+    if (!email.includes("@")) return { error: "A valid email is required" };
+    if (!input.password || input.password.length < 8) {
+      return { error: "Password must be at least 8 characters" };
+    }
+    if (s.users.some((u) => u.email.toLowerCase() === email)) {
+      return { error: "Email already in use" };
+    }
+    const u = addUser(s, {
+      email,
+      name: input.name.trim() || email,
+      password: input.password,
+      role: "admin",
+      clientId: null,
+      clientRole: null,
+    });
+    await persist(s);
+    return u;
+  },
+  async createInTenant(input: {
     email: string;
     name: string;
     clientId: number;
     clientRole: ClientRole;
-  }): User | { error: string } {
-    const s = getState();
-    if (s.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
+  }): Promise<User | { error: string }> {
+    const s = await getState();
+    if (
+      s.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())
+    ) {
       return { error: "Email already in use" };
     }
-    // Generate a random initial password — the real flow would email
-    // an invitation link. In the prototype we just print it.
+    // Generate a random initial password — the real flow emails an
+    // invitation link. In the prototype we surface it to the inviter.
     const tempPassword = crypto.randomBytes(9).toString("base64url");
-    const { hash, salt } = hashPw(tempPassword);
-    const u: User = {
-      id: s.next.user++,
+    const u = addUser(s, {
       email: input.email,
       name: input.name,
-      passwordHash: hash,
-      passwordSalt: salt,
+      password: tempPassword,
       role: "client",
       clientId: input.clientId,
       clientRole: input.clientRole,
-      mfaEnabled: false,
-      passkeyCount: 0,
-      ssoProvider: null,
-      createdAt: new Date().toISOString(),
-      lastLoginAt: null,
-    };
-    s.users.push(u);
-    // Attach for the response so the client admin can copy/send it
-    // manually until the real invite-email flow is wired up.
+    });
+    await persist(s);
     (u as User & { _tempPassword?: string })._tempPassword = tempPassword;
     return u;
   },
-  remove(id: number): boolean {
-    const s = getState();
-    const before = s.users.length;
+  async remove(id: number): Promise<boolean> {
+    const s = await getState();
+    const target = s.users.find((u) => u.id === id);
+    if (!target) return false;
+    // Never strand the platform: refuse to delete the last admin.
+    if (target.role === "admin") {
+      const admins = s.users.filter((u) => u.role === "admin").length;
+      if (admins <= 1) return false;
+    }
     s.users = s.users.filter((u) => u.id !== id);
-    return s.users.length < before;
+    await persist(s);
+    return true;
   },
-  setMfa(id: number, enabled: boolean): boolean {
-    const u = this.findById(id);
+  async setMfa(id: number, enabled: boolean): Promise<boolean> {
+    const s = await getState();
+    const u = s.users.find((x) => x.id === id);
     if (!u) return false;
     u.mfaEnabled = enabled;
+    await persist(s);
     return true;
   },
-  registerPasskey(id: number): boolean {
-    const u = this.findById(id);
+  async registerPasskey(id: number): Promise<boolean> {
+    const s = await getState();
+    const u = s.users.find((x) => x.id === id);
     if (!u) return false;
     u.passkeyCount += 1;
+    await persist(s);
     return true;
   },
-  removePasskeys(id: number): boolean {
-    const u = this.findById(id);
+  async removePasskeys(id: number): Promise<boolean> {
+    const s = await getState();
+    const u = s.users.find((x) => x.id === id);
     if (!u) return false;
     u.passkeyCount = 0;
+    await persist(s);
     return true;
   },
-  recordLogin(id: number) {
-    const u = this.findById(id);
-    if (u) u.lastLoginAt = new Date().toISOString();
+  async recordLogin(id: number): Promise<void> {
+    const s = await getState();
+    const u = s.users.find((x) => x.id === id);
+    if (u) {
+      u.lastLoginAt = new Date().toISOString();
+      await persist(s);
+    }
   },
 };
 
 export const settings = {
-  read(): Settings {
-    return getState().settings;
+  async read(): Promise<Settings> {
+    return (await getState()).settings;
   },
-  updateBranding(input: Partial<Settings["branding"]>) {
-    const s = getState();
+  async updateBranding(input: Partial<Settings["branding"]>): Promise<void> {
+    const s = await getState();
     s.settings.branding = { ...s.settings.branding, ...input };
+    await persist(s);
   },
-  updateAuth(input: Partial<Settings["auth"]>) {
-    const s = getState();
+  async updateAuth(input: Partial<Settings["auth"]>): Promise<void> {
+    const s = await getState();
     s.settings.auth = { ...s.settings.auth, ...input };
+    await persist(s);
   },
-  updateEmail(
+  async updateEmail(
     key: string,
     template: { subject: string; body: string }
-  ): boolean {
-    const s = getState();
+  ): Promise<boolean> {
+    const s = await getState();
     if (!(key in s.settings.emails)) return false;
     s.settings.emails[key] = template;
+    await persist(s);
     return true;
   },
-  updateMail(input: {
+  async updateMail(input: {
     provider?: "smtp2go" | "none";
     apiKey?: string;
     fromEmail?: string;
     fromName?: string;
-  }) {
-    const s = getState();
+  }): Promise<void> {
+    const s = await getState();
     if (input.provider !== undefined) s.settings.mail.provider = input.provider;
     if (input.fromEmail !== undefined)
       s.settings.mail.fromEmail = input.fromEmail;
@@ -532,34 +703,35 @@ export const settings = {
         s.secrets.mailApiKey = trimmed;
         s.settings.mail.apiKeySet = true;
       } else if (trimmed === "") {
-        // Empty string = clear
         s.secrets.mailApiKey = null;
         s.settings.mail.apiKeySet = false;
       }
     }
+    await persist(s);
   },
-  recordMailTest(ok: boolean, error: string | null) {
-    const s = getState();
+  async recordMailTest(ok: boolean, error: string | null): Promise<void> {
+    const s = await getState();
     s.settings.mail.lastTestAt = new Date().toISOString();
     s.settings.mail.lastTestOk = ok;
     s.settings.mail.lastTestError = error;
+    await persist(s);
   },
-  _internalMailKey(): string | null {
-    return getState().secrets.mailApiKey;
+  async _internalMailKey(): Promise<string | null> {
+    return (await getState()).secrets.mailApiKey;
   },
 };
 
 export const clients = {
-  list(): Client[] {
-    return [...getState().clients].sort((a, b) =>
+  async list(): Promise<Client[]> {
+    return [...(await getState()).clients].sort((a, b) =>
       a.name.localeCompare(b.name)
     );
   },
-  findById(id: number): Client | undefined {
-    return getState().clients.find((c) => c.id === id);
+  async findById(id: number): Promise<Client | undefined> {
+    return (await getState()).clients.find((c) => c.id === id);
   },
-  create(name: string, tenancyMode: TenancyMode = "shared"): Client {
-    const s = getState();
+  async create(name: string, tenancyMode: TenancyMode = "shared"): Promise<Client> {
+    const s = await getState();
     const c: Client = {
       id: s.next.client++,
       name,
@@ -567,22 +739,27 @@ export const clients = {
       tenancyMode,
     };
     s.clients.push(c);
+    await persist(s);
     return c;
   },
-  setTenancyMode(id: number, tenancyMode: TenancyMode): boolean {
-    const c = this.findById(id);
+  async setTenancyMode(id: number, tenancyMode: TenancyMode): Promise<boolean> {
+    const s = await getState();
+    const c = s.clients.find((x) => x.id === id);
     if (!c) return false;
     c.tenancyMode = tenancyMode;
+    await persist(s);
     return true;
   },
-  rename(id: number, name: string): boolean {
-    const c = this.findById(id);
+  async rename(id: number, name: string): Promise<boolean> {
+    const s = await getState();
+    const c = s.clients.find((x) => x.id === id);
     if (!c) return false;
     c.name = name;
+    await persist(s);
     return true;
   },
-  remove(id: number): boolean {
-    const s = getState();
+  async remove(id: number): Promise<boolean> {
+    const s = await getState();
     const before = s.clients.length;
     s.clients = s.clients.filter((c) => c.id !== id);
     if (s.clients.length === before) return false;
@@ -595,27 +772,28 @@ export const clients = {
         u.clientRole = null;
       }
     }
+    await persist(s);
     return true;
   },
 };
 
 export const instances = {
-  all(): Instance[] {
-    return getState().instances;
+  async all(): Promise<Instance[]> {
+    return (await getState()).instances;
   },
-  forClient(clientId: number): Instance | undefined {
-    return getState().instances.find((i) => i.clientId === clientId);
+  async forClient(clientId: number): Promise<Instance | undefined> {
+    return (await getState()).instances.find((i) => i.clientId === clientId);
   },
-  findById(id: number): Instance | undefined {
-    return getState().instances.find((i) => i.id === id);
+  async findById(id: number): Promise<Instance | undefined> {
+    return (await getState()).instances.find((i) => i.id === id);
   },
-  create(input: {
+  async create(input: {
     clientId: number;
     subdomain: string;
     image: string;
     envVars: Record<string, string>;
-  }): Instance {
-    const s = getState();
+  }): Promise<Instance> {
+    const s = await getState();
     const port = 5100 + s.instances.length + 1;
     const inst: Instance = {
       id: s.next.instance++,
@@ -631,46 +809,56 @@ export const instances = {
       lastError: null,
     };
     s.instances.push(inst);
+    await persist(s);
     return inst;
   },
-  patch(
+  async patch(
     id: number,
     changes: Partial<
       Pick<Instance, "image" | "envVars" | "status" | "lastError">
     >
-  ): Instance | undefined {
-    const inst = this.findById(id);
+  ): Promise<Instance | undefined> {
+    const s = await getState();
+    const inst = s.instances.find((i) => i.id === id);
     if (!inst) return undefined;
     Object.assign(inst, changes, { updatedAt: new Date().toISOString() });
+    await persist(s);
     return inst;
   },
-  remove(id: number): boolean {
-    const s = getState();
+  async remove(id: number): Promise<boolean> {
+    const s = await getState();
     const before = s.instances.length;
     s.instances = s.instances.filter((i) => i.id !== id);
-    return s.instances.length < before;
+    const changed = s.instances.length < before;
+    if (changed) await persist(s);
+    return changed;
   },
 };
 
 export const mappings = {
-  all(): WorkflowMapping[] {
-    return getState().mappings;
+  async all(): Promise<WorkflowMapping[]> {
+    return (await getState()).mappings;
   },
-  forClient(clientId: number): WorkflowMapping[] {
-    return getState().mappings.filter((m) => m.clientId === clientId);
+  async forClient(clientId: number): Promise<WorkflowMapping[]> {
+    return (await getState()).mappings.filter((m) => m.clientId === clientId);
   },
-  exists(clientId: number, n8nWorkflowId: string): boolean {
-    return getState().mappings.some(
+  async exists(clientId: number, n8nWorkflowId: string): Promise<boolean> {
+    return (await getState()).mappings.some(
       (m) => m.clientId === clientId && m.n8nWorkflowId === n8nWorkflowId
     );
   },
-  create(
+  async create(
     clientId: number,
     n8nWorkflowId: string,
     displayName: string | null
-  ): WorkflowMapping | null {
-    const s = getState();
-    if (this.exists(clientId, n8nWorkflowId)) return null;
+  ): Promise<WorkflowMapping | null> {
+    const s = await getState();
+    if (
+      s.mappings.some(
+        (m) => m.clientId === clientId && m.n8nWorkflowId === n8nWorkflowId
+      )
+    )
+      return null;
     const m: WorkflowMapping = {
       id: s.next.mapping++,
       clientId,
@@ -678,41 +866,45 @@ export const mappings = {
       displayName,
     };
     s.mappings.push(m);
+    await persist(s);
     return m;
   },
-  remove(clientId: number, n8nWorkflowId: string) {
-    const s = getState();
+  async remove(clientId: number, n8nWorkflowId: string): Promise<void> {
+    const s = await getState();
     s.mappings = s.mappings.filter(
-      (m) =>
-        !(m.clientId === clientId && m.n8nWorkflowId === n8nWorkflowId)
+      (m) => !(m.clientId === clientId && m.n8nWorkflowId === n8nWorkflowId)
     );
+    await persist(s);
   },
 };
 
 export const errors = {
-  recentForWorkflows(workflowIds: string[], limit = 100): ErrorEvent[] {
+  async recentForWorkflows(
+    workflowIds: string[],
+    limit = 100
+  ): Promise<ErrorEvent[]> {
     if (workflowIds.length === 0) return [];
     const set = new Set(workflowIds);
-    return getState()
-      .errors.filter((e) => set.has(e.n8nWorkflowId))
+    return (await getState()).errors
+      .filter((e) => set.has(e.n8nWorkflowId))
       .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
       .slice(0, limit);
   },
-  unreadCountForWorkflows(workflowIds: string[]): number {
+  async unreadCountForWorkflows(workflowIds: string[]): Promise<number> {
     if (workflowIds.length === 0) return 0;
     const set = new Set(workflowIds);
-    return getState().errors.filter(
+    return (await getState()).errors.filter(
       (e) => !e.acknowledged && set.has(e.n8nWorkflowId)
     ).length;
   },
-  create(input: {
+  async create(input: {
     n8nWorkflowId: string;
     workflowName?: string | null;
     executionId?: string | null;
     nodeName?: string | null;
     message?: string | null;
-  }): ErrorEvent {
-    const s = getState();
+  }): Promise<ErrorEvent> {
+    const s = await getState();
     const e: ErrorEvent = {
       id: s.next.error++,
       receivedAt: new Date().toISOString(),
@@ -724,6 +916,7 @@ export const errors = {
       acknowledged: false,
     };
     s.errors.push(e);
+    await persist(s);
     return e;
   },
 };

@@ -6,7 +6,7 @@ import { provisionInstance } from "@/lib/docker";
 export async function GET() {
   try {
     await requireAdmin();
-    return NextResponse.json({ instances: instances.all() });
+    return NextResponse.json({ instances: await instances.all() });
   } catch (e) {
     return errorResponse(e);
   }
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const client = clients.findById(body.clientId);
+    const client = await clients.findById(body.clientId);
     if (!client) {
       return NextResponse.json({ error: "client not found" }, { status: 404 });
     }
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    if (instances.forClient(body.clientId)) {
+    if (await instances.forClient(body.clientId)) {
       return NextResponse.json(
         { error: "client already has an instance" },
         { status: 409 }

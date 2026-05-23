@@ -6,7 +6,7 @@ import { listWorkflows } from "@/lib/n8n";
 export async function GET() {
   try {
     const user = await requireUser();
-    const rows = workflowsForUser(user);
+    const rows = await workflowsForUser(user);
     const ids = [...new Set(rows.map((r) => r.n8nWorkflowId))];
     const wfs = await listWorkflows(ids);
     const overrides = new Map(

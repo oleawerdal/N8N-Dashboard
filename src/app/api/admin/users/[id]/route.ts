@@ -2,32 +2,31 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/session";
 import { users } from "@/lib/store";
 
-export async function PATCH(
-  req: Request,
+export async function DELETE(
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAdmin();
+    const me = await requireAdmin();
     const { id } = await params;
-    const { clientRole } = (await req.json()) as {
-      clientRole?: "viewer" | "operator" | "client_admin";
-    };
-    if (
-      clientRole !== "viewer" &&
-      clientRole !== "operator" &&
-      clientRole !== "client_admin"
-    ) {
+    const targetId = Number(id);
+    const target = await users.findById(targetId);
+    if (!target || target.role !== "admin") {
+      return NextResponse.json({ error: "admin not found" }, { status: 404 });
+    }
+    if (target.id === me.id) {
       return NextResponse.json(
-        { error: "clientRole must be viewer, operator or client_admin" },
+        { error: "you cannot remove your own admin account" },
         { status: 400 }
       );
     }
-    const ok = await users.updateClientRole(Number(id), clientRole);
-    if (!ok)
+    const ok = await users.remove(targetId);
+    if (!ok) {
       return NextResponse.json(
-        { error: "user not found or not a client user" },
-        { status: 404 }
+        { error: "cannot remove the last remaining admin" },
+        { status: 400 }
       );
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

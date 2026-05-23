@@ -24,7 +24,7 @@ export default async function AuthPage() {
           ← Back to admin
         </Link>
       </div>
-      <AuthUI initial={settings.read().auth} />
+      <AuthUI initial={(await settings.read()).auth} />
     </div>
   );
 }

@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (!email || !password) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
-  const u = users.findByEmail(email);
+  const u = await users.findByEmail(email);
   if (!u || !verifyPassword(password, u.passwordHash, u.passwordSalt)) {
     return NextResponse.json({ error: "invalid credentials" }, { status: 401 });
   }
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     clientRole: u.clientRole,
   };
   delete session.realUser;
-  users.recordLogin(u.id);
+  await users.recordLogin(u.id);
   await session.save();
   return NextResponse.json({ ok: true });
 }

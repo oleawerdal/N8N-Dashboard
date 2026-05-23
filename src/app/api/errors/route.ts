@@ -6,9 +6,9 @@ import { errors } from "@/lib/store";
 export async function GET() {
   try {
     const user = await requireUser();
-    const allowed = workflowsForUser(user).map((r) => r.n8nWorkflowId);
+    const allowed = (await workflowsForUser(user)).map((r) => r.n8nWorkflowId);
     return NextResponse.json({
-      errors: errors.recentForWorkflows(allowed, 100),
+      errors: await errors.recentForWorkflows(allowed, 100),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   if (!body.workflowId) {
     return NextResponse.json({ error: "workflowId required" }, { status: 400 });
   }
-  errors.create({
+  await errors.create({
     n8nWorkflowId: body.workflowId,
     workflowName: body.workflowName,
     executionId: body.executionId,

@@ -11,9 +11,10 @@ export default async function EmailsPage() {
   if (!session.user) redirect("/login?next=/admin/emails");
   if (session.user.role !== "admin") redirect("/?notAdmin=1");
 
-  const all = settings.read().emails;
-  const branding = settings.read().branding;
-  const mail = settings.read().mail;
+  const cfg = await settings.read();
+  const all = cfg.emails;
+  const branding = cfg.branding;
+  const mail = cfg.mail;
   const templates = EMAIL_TEMPLATES.map((t) => ({
     key: t.key,
     label: t.label,

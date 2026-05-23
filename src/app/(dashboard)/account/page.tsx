@@ -8,10 +8,10 @@ export const dynamic = "force-dynamic";
 export default async function AccountPage() {
   const session = await getSession();
   if (!session.user) redirect("/login?next=/account");
-  const me = users.findById(session.user.id);
+  const me = await users.findById(session.user.id);
   if (!me) redirect("/login");
 
-  const auth = settings.read().auth;
+  const auth = (await settings.read()).auth;
   return (
     <div className="space-y-4 sm:space-y-6 max-w-2xl">
       <div>

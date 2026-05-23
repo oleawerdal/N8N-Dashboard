@@ -45,10 +45,51 @@ N8N_API_KEY=<paste an n8n API key>
 Then redeploy. The API key never reaches the browser — only the server
 calls n8n.
 
-> **Note on data persistence:** the prototype keeps state (clients,
-> mappings, received errors) in memory. On Vercel that resets on cold
-> starts. That's fine for kicking the tires — for production swap
-> `src/lib/store.ts` for Postgres (Neon, Supabase) or Turso.
+## Persistence (Postgres) & deploying on Coolify
+
+By default the app keeps all state (clients, users, admins, settings,
+received errors) **in memory**, seeded with demo data. That resets on
+every restart/redeploy — fine for a demo, not for real use.
+
+To make data durable, set **`DATABASE_URL`** to a Postgres connection
+string. The whole store is then persisted as a JSON snapshot in an
+`app_state` table (auto-created on first run) and survives redeploys.
+
+On **Coolify**:
+
+1. Add a **PostgreSQL** resource and copy its connection string.
+2. On the dashboard service, set environment variables:
+
+   ```
+   DATABASE_URL=postgres://user:password@host:5432/dbname
+   # DATABASE_SSL=true        # only if your Postgres requires TLS
+   SESSION_SECRET=<32+ random chars>
+
+   # Seeds the FIRST admin on a fresh database (change these!)
+   ADMIN_EMAIL=you@yourdomain.com
+   ADMIN_NAME=Your Name
+   ADMIN_PASSWORD=<a strong password>
+
+   # Point at your n8n (see below)
+   N8N_MODE=live
+   N8N_BASE_URL=https://n8n.yourdomain.com
+   N8N_API_KEY=<n8n API key>
+   ```
+
+3. Redeploy. A fresh database is seeded with **only** that one platform
+   admin (no demo tenants). Sign in and add more admins under
+   **Admin → Admins**, and create clients/users from there.
+
+> `ADMIN_*` only seeds an empty database. Once an admin exists, changing
+> those vars does nothing — manage admins in the UI.
+
+### Connecting your n8n server
+
+The dashboard talks to **one** n8n instance via the `N8N_*` env vars
+above — not through the admin UI. (The **Admin → n8n Instances** page is a
+separate, optional feature for provisioning *new* per-client n8n
+containers over Docker, and ships in mock mode.) Set `N8N_MODE=live`,
+`N8N_BASE_URL` and `N8N_API_KEY`, then redeploy.
 
 ## Wiring up error notifications
 

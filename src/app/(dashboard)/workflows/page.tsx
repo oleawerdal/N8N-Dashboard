@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function WorkflowsPage() {
   const user = await requireUser();
-  const mappings = workflowsForUser(user);
+  const mappings = await workflowsForUser(user);
   const ids = [...new Set(mappings.map((m) => m.n8nWorkflowId))];
   const workflows = await listWorkflows(ids);
   const overrides = new Map(

@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as Partial<Settings["auth"]> & {
       entraSecret?: string;
     };
-    const current = settings.read().auth;
+    const current = (await settings.read()).auth;
     const next: Settings["auth"] = {
       emailPassword: body.emailPassword ?? current.emailPassword,
       entra: body.entra
@@ -24,8 +24,8 @@ export async function POST(req: Request) {
       mfa: body.mfa ?? current.mfa,
       passkeys: body.passkeys ?? current.passkeys,
     };
-    settings.updateAuth(next);
-    return NextResponse.json({ auth: redact(settings.read().auth) });
+    await settings.updateAuth(next);
+    return NextResponse.json({ auth: redact((await settings.read()).auth) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
     const status =

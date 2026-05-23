@@ -20,12 +20,12 @@ export async function PATCH(
       );
     }
     if (body.name?.trim()) {
-      const ok = clients.rename(Number(id), body.name.trim());
+      const ok = await clients.rename(Number(id), body.name.trim());
       if (!ok)
         return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     if (body.tenancyMode) {
-      const ok = clients.setTenancyMode(Number(id), body.tenancyMode);
+      const ok = await clients.setTenancyMode(Number(id), body.tenancyMode);
       if (!ok)
         return NextResponse.json({ error: "not found" }, { status: 404 });
     }
@@ -42,7 +42,7 @@ export async function DELETE(
   try {
     await requireAdmin();
     const { id } = await params;
-    const ok = clients.remove(Number(id));
+    const ok = await clients.remove(Number(id));
     if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (e) {

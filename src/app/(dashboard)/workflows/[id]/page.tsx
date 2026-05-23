@@ -15,7 +15,7 @@ export default async function WorkflowDetail({
 }) {
   const user = await requireUser();
   const { id } = await params;
-  if (!userCanAccessWorkflow(user, id)) redirect("/workflows");
+  if (!(await userCanAccessWorkflow(user, id))) redirect("/workflows");
   const workflow = await getWorkflow(id);
   if (!workflow) notFound();
   const executions = await listExecutions(id, 25);

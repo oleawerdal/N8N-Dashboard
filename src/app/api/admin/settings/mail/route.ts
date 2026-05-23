@@ -11,14 +11,14 @@ export async function POST(req: Request) {
       fromEmail?: string;
       fromName?: string;
     };
-    settings.updateMail({
+    await settings.updateMail({
       provider: body.provider,
       apiKey: body.apiKey,
       fromEmail: body.fromEmail,
       fromName: body.fromName,
     });
     // Never echo the secret back.
-    return NextResponse.json({ mail: settings.read().mail });
+    return NextResponse.json({ mail: (await settings.read()).mail });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
     const status =

@@ -24,8 +24,8 @@ export async function sendMail(input: {
   subject: string;
   body: string;
 }): Promise<SendResult> {
-  const cfg = settings.read().mail;
-  const apiKey = settings._internalMailKey();
+  const cfg = (await settings.read()).mail;
+  const apiKey = await settings._internalMailKey();
   if (cfg.provider === "none" || !apiKey) {
     return { ok: false, error: "Mail provider not configured" };
   }
@@ -76,24 +76,27 @@ export async function sendMail(input: {
 // Render a registered template (invite/passwordReset/errorAlert/...) by
 // key. Variables that the template wasn't designed for are left as
 // literal {{name}} so missing fields are visible.
-export function renderTemplate(
+export async function renderTemplate(
   key: string,
   vars: Record<string, string | undefined>
-): { subject: string; body: string } | null {
-  const tpl = settings.read().emails[key];
+): Promise<{ subject: string; body: string } | null> {
+  const cfg = await settings.read();
+  const tpl = cfg.emails[key];
   if (!tpl) return null;
-  const sub = substitute(tpl.subject, vars);
-  const body = substitute(tpl.body, vars);
-  return { subject: sub, body };
+  const brandName = cfg.branding.brandName;
+  return {
+    subject: substitute(tpl.subject, vars, brandName),
+    body: substitute(tpl.body, vars, brandName),
+  };
 }
 
 function substitute(
   template: string,
-  vars: Record<string, string | undefined>
+  vars: Record<string, string | undefined>,
+  brandName: string
 ): string {
-  const branding = settings.read().branding;
   const full: Record<string, string | undefined> = {
-    brandName: branding.brandName,
+    brandName,
     ...vars,
   };
   return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) =>

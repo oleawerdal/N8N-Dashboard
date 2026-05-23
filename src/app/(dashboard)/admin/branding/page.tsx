@@ -24,7 +24,7 @@ export default async function BrandingPage() {
           ← Back to admin
         </Link>
       </div>
-      <BrandingUI initial={settings.read().branding} />
+      <BrandingUI initial={(await settings.read()).branding} />
     </div>
   );
 }

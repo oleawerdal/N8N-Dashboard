@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const me = await requireAdmin();
     const body = (await req.json().catch(() => ({}))) as { to?: string };
     const to = body.to?.trim() || me.email;
-    const cfg = settings.read();
+    const cfg = await settings.read();
     const result = await sendMail({
       to,
       toName: me.name,
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
         `If you received it, the integration is working. Sent at ` +
         new Date().toISOString(),
     });
-    settings.recordMailTest(result.ok, result.ok ? null : result.error);
+    await settings.recordMailTest(result.ok, result.ok ? null : result.error);
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.error });
     }

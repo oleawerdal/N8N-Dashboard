@@ -10,7 +10,7 @@ export default async function DashboardLayout({
 }) {
   const session = await getSession();
   if (!session.user) redirect("/login");
-  const branding = settings.read().branding;
+  const branding = (await settings.read()).branding;
   return (
     <div
       className="min-h-screen"

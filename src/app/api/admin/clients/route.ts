@@ -5,8 +5,8 @@ import { clients, mappings } from "@/lib/store";
 export async function GET() {
   try {
     await requireAdmin();
-    const all = clients.list();
-    const allMappings = mappings.all();
+    const all = await clients.list();
+    const allMappings = await mappings.all();
     return NextResponse.json({
       clients: all.map((c) => ({
         ...c,
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     if (!name) {
       return NextResponse.json({ error: "name required" }, { status: 400 });
     }
-    const c = clients.create(name, tenancyMode ?? "shared");
+    const c = await clients.create(name, tenancyMode ?? "shared");
     return NextResponse.json({ id: c.id, tenancyMode: c.tenancyMode });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

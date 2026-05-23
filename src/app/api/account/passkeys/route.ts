@@ -10,12 +10,12 @@ export async function POST(req: Request) {
     const { action } = (await req.json()) as {
       action?: "register" | "removeAll";
     };
-    if (action === "register") users.registerPasskey(me.id);
-    else if (action === "removeAll") users.removePasskeys(me.id);
+    if (action === "register") await users.registerPasskey(me.id);
+    else if (action === "removeAll") await users.removePasskeys(me.id);
     else
       return NextResponse.json({ error: "unknown action" }, { status: 400 });
     return NextResponse.json({
-      passkeyCount: users.findById(me.id)?.passkeyCount ?? 0,
+      passkeyCount: (await users.findById(me.id))?.passkeyCount ?? 0,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

@@ -10,7 +10,7 @@ export async function POST(
   try {
     const user = await requireUser();
     const { id } = await params;
-    if (!userCanAccessWorkflow(user, id)) {
+    if (!(await userCanAccessWorkflow(user, id))) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
     if (

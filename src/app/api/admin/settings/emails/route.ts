@@ -16,7 +16,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const ok = settings.updateEmail(body.key, {
+    const ok = await settings.updateEmail(body.key, {
       subject: body.subject,
       body: body.body,
     });
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
         { status: 404 }
       );
     return NextResponse.json({
-      template: settings.read().emails[body.key],
+      template: (await settings.read()).emails[body.key],
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

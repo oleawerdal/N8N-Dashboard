@@ -67,6 +67,9 @@ export type WorkflowMapping = {
   clientId: number;
   n8nWorkflowId: string;
   displayName: string | null;
+  // Production webhook URL (or path) used to trigger a manual run. n8n's
+  // public API has no generic "execute", so manual runs hit a Webhook node.
+  webhookUrl: string | null;
 };
 
 export type ErrorEvent = {
@@ -158,7 +161,7 @@ export const EMAIL_TEMPLATES = [
 // Bump when the State shape changes in a way old in-memory copies can't
 // satisfy. On Postgres the loaded snapshot is normalized against the
 // current defaults rather than wiped, so a bump won't drop persisted data.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 type State = {
   schemaVersion: number;
@@ -375,6 +378,7 @@ function seedDemo(s: State) {
       clientId,
       n8nWorkflowId,
       displayName,
+      webhookUrl: null,
     });
   }
   map(acme.id, "wf_001", "Order → Accounting Sync");
@@ -498,7 +502,11 @@ function normalize(data: Partial<State>): State {
     seeded: true,
     clients: data.clients ?? [],
     users: data.users ?? [],
-    mappings: data.mappings ?? [],
+    // Default webhookUrl for mappings persisted before that field existed.
+    mappings: (data.mappings ?? []).map((m) => ({
+      ...m,
+      webhookUrl: m.webhookUrl ?? null,
+    })),
     errors: data.errors ?? [],
     instances: data.instances ?? [],
     settings: {
@@ -894,7 +902,8 @@ export const mappings = {
   async create(
     clientId: number,
     n8nWorkflowId: string,
-    displayName: string | null
+    displayName: string | null,
+    webhookUrl: string | null = null
   ): Promise<WorkflowMapping | null> {
     const s = await getState();
     if (
@@ -908,10 +917,43 @@ export const mappings = {
       clientId,
       n8nWorkflowId,
       displayName,
+      webhookUrl,
     };
     s.mappings.push(m);
     await persist(s);
     return m;
+  },
+  async update(
+    clientId: number,
+    n8nWorkflowId: string,
+    changes: { displayName?: string | null; webhookUrl?: string | null }
+  ): Promise<WorkflowMapping | null> {
+    const s = await getState();
+    const m = s.mappings.find(
+      (x) => x.clientId === clientId && x.n8nWorkflowId === n8nWorkflowId
+    );
+    if (!m) return null;
+    if (changes.displayName !== undefined) m.displayName = changes.displayName;
+    if (changes.webhookUrl !== undefined) m.webhookUrl = changes.webhookUrl;
+    await persist(s);
+    return m;
+  },
+  // Resolve the webhook to trigger for a manual run. Client users are
+  // scoped to their tenant's mapping; platform admins (clientId null) take
+  // any mapping of the workflow that has a webhook configured.
+  async webhookFor(
+    n8nWorkflowId: string,
+    clientId: number | null
+  ): Promise<string | null> {
+    const all = (await getState()).mappings;
+    if (clientId != null) {
+      const m = all.find(
+        (x) => x.clientId === clientId && x.n8nWorkflowId === n8nWorkflowId
+      );
+      return m?.webhookUrl ?? null;
+    }
+    const m = all.find((x) => x.n8nWorkflowId === n8nWorkflowId && x.webhookUrl);
+    return m?.webhookUrl ?? null;
   },
   async remove(clientId: number, n8nWorkflowId: string): Promise<void> {
     const s = await getState();

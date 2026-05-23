@@ -38,6 +38,7 @@ export default async function AdminPage() {
             id: m.id,
             n8nWorkflowId: m.n8nWorkflowId,
             displayName: m.displayName,
+            webhookUrl: m.webhookUrl ?? null,
           })),
         users: clientUsers.map((u) => ({
           id: u.id,

@@ -164,15 +164,31 @@ async function liveListExecutions(
   });
 }
 
-async function liveRunWorkflow(workflowId: string): Promise<{ id: string }> {
-  // n8n's public API doesn't expose a direct "execute" endpoint;
-  // the convention is to call a webhook attached to the workflow.
-  // Document this clearly to the user.
-  throw new Error(
-    "Live manual-run requires a webhook trigger on the workflow. " +
-      "Configure N8N_WEBHOOK_PREFIX and the workflow's webhook path, or wire " +
-      "this to n8n's internal /rest/workflows/:id/execute if you have access."
-  );
+// n8n's public API has no generic "execute" endpoint; the supported way
+// to trigger a workflow externally is a Webhook node. We POST to its
+// production URL. `webhookUrl` may be a full URL or just the path/segment
+// after /webhook/.
+async function liveRunViaWebhook(
+  base: string,
+  webhookUrl: string
+): Promise<void> {
+  const url = webhookUrl.includes("://")
+    ? webhookUrl
+    : `${base}/webhook/${webhookUrl.replace(/^\/+/, "")}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: "n8n-dashboard",
+      triggeredAt: new Date().toISOString(),
+    }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Webhook returned ${res.status}: ${(await res.text()).slice(0, 300)}`
+    );
+  }
 }
 
 // ---------- MOCK ----------
@@ -323,12 +339,19 @@ export async function listAllWorkflows(): Promise<
 }
 
 export async function runWorkflow(
-  workflowId: string
+  workflowId: string,
+  webhookUrl?: string | null
 ): Promise<{ executionId: string }> {
-  const { live } = await n8nConfig();
+  const { live, base } = await n8nConfig();
   if (live) {
-    const r = await liveRunWorkflow(workflowId);
-    return { executionId: r.id };
+    if (!webhookUrl) {
+      throw new Error(
+        "No webhook configured for this workflow. In Admin → Clients, add the " +
+          "workflow's production Webhook URL (from its Webhook node in n8n)."
+      );
+    }
+    await liveRunViaWebhook(base, webhookUrl);
+    return { executionId: `webhook_${workflowId}_${Date.now()}` };
   }
   // Mock: pretend we started a run
   return { executionId: `exec_${workflowId}_manual_${Date.now()}` };

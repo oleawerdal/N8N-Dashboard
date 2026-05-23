@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
 import { userCanAccessWorkflow } from "@/lib/access";
 import { runWorkflow } from "@/lib/n8n";
+import { mappings } from "@/lib/store";
 
 export async function POST(
   _req: Request,
@@ -26,7 +27,11 @@ export async function POST(
         { status: 403 }
       );
     }
-    const result = await runWorkflow(id);
+    const webhookUrl = await mappings.webhookFor(
+      id,
+      user.role === "admin" ? null : user.clientId
+    );
+    const result = await runWorkflow(id, webhookUrl);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";

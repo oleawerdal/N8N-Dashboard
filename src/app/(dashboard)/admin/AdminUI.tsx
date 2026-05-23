@@ -6,6 +6,7 @@ type Workflow = {
   id: number;
   n8nWorkflowId: string;
   displayName: string | null;
+  webhookUrl: string | null;
 };
 type ClientUser = {
   id: number;
@@ -109,14 +110,33 @@ export function AdminUI({
     router.refresh();
   }
 
-  async function assignWorkflow(clientId: number, n8nWorkflowId: string, displayName?: string) {
+  async function assignWorkflow(
+    clientId: number,
+    n8nWorkflowId: string,
+    displayName?: string,
+    webhookUrl?: string
+  ) {
     await fetch(`/api/admin/clients/${clientId}/workflows`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         n8nWorkflowId,
         displayName: displayName?.trim() || undefined,
+        webhookUrl: webhookUrl?.trim() || undefined,
       }),
+    });
+    router.refresh();
+  }
+
+  async function setWebhook(
+    clientId: number,
+    n8nWorkflowId: string,
+    webhookUrl: string
+  ) {
+    await fetch(`/api/admin/clients/${clientId}/workflows`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ n8nWorkflowId, webhookUrl }),
     });
     router.refresh();
   }
@@ -217,7 +237,8 @@ export function AdminUI({
                   <thead>
                     <tr>
                       <th>n8n Workflow ID</th>
-                      <th>Display name override</th>
+                      <th>Display name</th>
+                      <th>Webhook URL (for "Run now")</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -229,6 +250,14 @@ export function AdminUI({
                           {w.displayName || (
                             <span className="text-muted">—</span>
                           )}
+                        </td>
+                        <td>
+                          <WebhookField
+                            initial={w.webhookUrl}
+                            onSave={(url) =>
+                              setWebhook(c.id, w.n8nWorkflowId, url)
+                            }
+                          />
                         </td>
                         <td className="text-right">
                           <button
@@ -242,7 +271,7 @@ export function AdminUI({
                     ))}
                     {c.workflows.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="text-center text-muted py-6">
+                        <td colSpan={4} className="text-center text-muted py-6">
                           No workflows assigned yet.
                         </td>
                       </tr>
@@ -262,6 +291,13 @@ export function AdminUI({
                       <div className="row-meta font-mono text-xs">
                         {w.n8nWorkflowId}
                       </div>
+                      <div className="text-xs text-muted mt-1">
+                        Webhook URL (for "Run now")
+                      </div>
+                      <WebhookField
+                        initial={w.webhookUrl}
+                        onSave={(url) => setWebhook(c.id, w.n8nWorkflowId, url)}
+                      />
                       <button
                         onClick={() => removeWorkflow(c.id, w.n8nWorkflowId)}
                         className="btn text-xs self-start"
@@ -280,7 +316,9 @@ export function AdminUI({
                 {pickerOpenFor === c.id && (
                   <WorkflowPicker
                     available={unassigned}
-                    onAssign={(id, name) => assignWorkflow(c.id, id, name)}
+                    onAssign={(id, name, webhook) =>
+                      assignWorkflow(c.id, id, name, webhook)
+                    }
                   />
                 )}
               </section>
@@ -550,10 +588,11 @@ function WorkflowPicker({
   onAssign,
 }: {
   available: AvailableWorkflow[];
-  onAssign: (id: string, displayName?: string) => void;
+  onAssign: (id: string, displayName?: string, webhookUrl?: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
+  const [webhooks, setWebhooks] = useState<Record<string, string>>({});
   const filtered = available.filter(
     (w) =>
       w.id.toLowerCase().includes(query.toLowerCase()) ||
@@ -572,32 +611,41 @@ function WorkflowPicker({
       </div>
       <div className="max-h-96 overflow-y-auto divide-y divide-border">
         {filtered.map((w) => (
-          <div
-            key={w.id}
-            className="flex flex-col sm:flex-row sm:items-center gap-2 py-3"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{w.name}</div>
-              <div className="text-xs text-muted font-mono truncate">
-                {w.id} · {w.active ? "active" : "inactive"}
+          <div key={w.id} className="py-3 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{w.name}</div>
+                <div className="text-xs text-muted font-mono truncate">
+                  {w.id} · {w.active ? "active" : "inactive"}
+                </div>
+              </div>
+              <div className="flex gap-2 items-center">
+                <input
+                  className="input text-xs flex-1 sm:w-40 sm:flex-none"
+                  placeholder="Display name (optional)"
+                  value={displayNames[w.id] || ""}
+                  onChange={(e) =>
+                    setDisplayNames((s) => ({ ...s, [w.id]: e.target.value }))
+                  }
+                />
+                <button
+                  className="btn btn-primary text-xs shrink-0"
+                  onClick={() =>
+                    onAssign(w.id, displayNames[w.id], webhooks[w.id])
+                  }
+                >
+                  Assign
+                </button>
               </div>
             </div>
-            <div className="flex gap-2 items-center">
-              <input
-                className="input text-xs flex-1 sm:w-40 sm:flex-none"
-                placeholder="Display name (optional)"
-                value={displayNames[w.id] || ""}
-                onChange={(e) =>
-                  setDisplayNames((s) => ({ ...s, [w.id]: e.target.value }))
-                }
-              />
-              <button
-                className="btn btn-primary text-xs shrink-0"
-                onClick={() => onAssign(w.id, displayNames[w.id])}
-              >
-                Assign
-              </button>
-            </div>
+            <input
+              className="input text-xs w-full font-mono"
+              placeholder='Webhook URL for "Run now" (optional) — e.g. https://n8n…/webhook/abc'
+              value={webhooks[w.id] || ""}
+              onChange={(e) =>
+                setWebhooks((s) => ({ ...s, [w.id]: e.target.value }))
+              }
+            />
           </div>
         ))}
         {filtered.length === 0 && (
@@ -608,6 +656,34 @@ function WorkflowPicker({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function WebhookField({
+  initial,
+  onSave,
+}: {
+  initial: string | null;
+  onSave: (url: string) => void;
+}) {
+  const [val, setVal] = useState(initial ?? "");
+  const dirty = val.trim() !== (initial ?? "").trim();
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        className="input text-xs flex-1 font-mono"
+        placeholder='https://n8n…/webhook/… (blank = not runnable)'
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+      />
+      <button
+        className="btn text-xs shrink-0"
+        disabled={!dirty}
+        onClick={() => onSave(val.trim())}
+      >
+        Save
+      </button>
     </div>
   );
 }
